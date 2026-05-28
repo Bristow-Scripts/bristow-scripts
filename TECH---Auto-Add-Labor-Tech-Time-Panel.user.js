@@ -1,0 +1,802 @@
+// ==UserScript==
+// @name         TECH - Auto Add Labor + Tech Time Panel
+// @namespace    http://tampermonkey.net/
+// @version      3.3
+// @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
+// @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
+// @description  Checks for and adds the labor line and processes it, added panel that will add automatically add time tech hourly line.
+// @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    if (!window.location.href.includes('/Orders/Orders/Edit')) return;
+
+    // =========================================================================
+    // SHARED UTILITIES
+    // =========================================================================
+
+    var SERVICE_ID = '834f33a0-2baf-4b64-6727-08ddb592746f';
+
+    function log(msg)  { console.log('[Tech] ' + msg); }
+    function warn(msg) { console.warn('[Tech] ' + msg); }
+
+    function poll(label, conditionFn, onFound, timeoutMs, intervalMs) {
+        timeoutMs  = timeoutMs  || 15000;
+        intervalMs = intervalMs || 300;
+        var elapsed = 0;
+        var tid = setInterval(function () {
+            var result = conditionFn();
+            if (result) {
+                clearInterval(tid);
+                onFound(result);
+                return;
+            }
+            elapsed += intervalMs;
+            if (elapsed >= timeoutMs) {
+                clearInterval(tid);
+                warn('Timed out: ' + label);
+            }
+        }, intervalMs);
+        return function () { clearInterval(tid); };
+    }
+
+    function getCsrfToken() {
+        var el = document.querySelector('input[name="__RequestVerificationToken"]')
+               || document.querySelector('meta[name="RequestVerificationToken"]');
+        return el ? (el.value || el.getAttribute('content')) : null;
+    }
+
+    function getOrderId() {
+        return new URLSearchParams(window.location.search).get('id');
+    }
+
+    // =========================================================================
+    // PART 1 — AUTO ADD SERVICE LINE
+    // =========================================================================
+
+    window.alert = function (msg) { log('Suppressed alert: ' + msg); };
+
+    function tableHasLines() {
+        var table = document.getElementById('order-line-area');
+        if (!table) return false;
+        return table.innerHTML.indexOf('S-100542') !== -1
+            || table.innerHTML.indexOf(SERVICE_ID)  !== -1;
+    }
+
+    function findServiceRow() {
+        var rows = document.querySelectorAll('#order-line-area tbody tr');
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].innerHTML.indexOf('S-100542') !== -1
+             || rows[i].innerHTML.indexOf(SERVICE_ID) !== -1) {
+                return rows[i];
+            }
+        }
+        return null;
+    }
+
+    function getServiceLineId() {
+        var row = findServiceRow();
+        if (!row) return null;
+        var m = row.id.match(/OrderLine_(.+)/);
+        return m ? m[1] : null;
+    }
+
+    function setSourceTypeToJob() {
+        var lineId = getServiceLineId();
+        if (!lineId) return;
+        var sourceRow = document.getElementById('OrderLineSourceArea_' + lineId);
+        if (!sourceRow) return;
+        var select = sourceRow.querySelector('select[id^="OrderLineSourceType_"]');
+        if (select && select.value !== '6') {
+            select.value = '6';
+            try { sourceTypeChanged(select); } catch (e) {}
+        }
+    }
+
+    function setQuantitiesToOne() {
+        var row = findServiceRow();
+        if (!row) return;
+        var input = row.querySelector('input[id^="OrderLineQuantityMask_"]');
+        if (input && (parseFloat(input.value) === 0 || input.value === '')) {
+            input.value = '1';
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
+
+    function phaseProcess() {
+        var lineId = getServiceLineId();
+        if (!lineId) return;
+        var checkbox = document.getElementById('check_' + lineId);
+        if (!checkbox) return;
+        checkbox.checked = true;
+        try { checkLine(checkbox, lineId); } catch (e) {}
+
+        poll('processSourceLines button', function () {
+            var btn = document.getElementById('processSourceLines');
+            return (btn && btn.style.display !== 'none') ? btn : null;
+        }, function () {
+            setTimeout(function () {
+                try { processSourceLines(); } catch (e) { warn('processSourceLines: ' + e.message); }
+            }, 100);
+        }, 10000, 100);
+    }
+
+    function phaseSave() {
+        poll('saveLines fn', function () {
+            return typeof saveLines === 'function' ? true : null;
+        }, function () {
+            saveLines();
+            setTimeout(phaseProcess, 1500);
+        });
+    }
+
+    function phaseConfigureAndSave() {
+        poll('OrderLineSourceType', function () {
+            return document.querySelector('select[id^="OrderLineSourceType_"]');
+        }, function () {
+            setSourceTypeToJob();
+            poll('OrderLineQuantityMask', function () {
+                return document.querySelector('input[id^="OrderLineQuantityMask_"]');
+            }, function () {
+                setQuantitiesToOne();
+                phaseSave();
+            });
+        });
+    }
+
+    function injectHtml(html) {
+        var table = document.getElementById('order-line-area');
+        if (!table) return;
+        var tbody = table.querySelector('tbody');
+        if (!tbody) return;
+        var tpl = document.createElement('template');
+        tpl.innerHTML = html;
+        tpl.content.querySelectorAll('script').forEach(function (s) { s.remove(); });
+        tbody.appendChild(tpl.content);
+        phaseConfigureAndSave();
+    }
+
+    function observeForNewLines() {
+        var table = document.getElementById('order-line-area');
+        if (!table) return;
+        var debounce = null;
+        var obs = new MutationObserver(function () {
+            clearTimeout(debounce);
+            debounce = setTimeout(function () {
+                setQuantitiesToOne();
+                if (findServiceRow()) {
+                    obs.disconnect();
+                    log('Part1 observer disconnected.');
+                }
+            }, 200);
+        });
+        obs.observe(table, { childList: true, subtree: true });
+    }
+
+    function addServiceLine() {
+        if (tableHasLines()) { setQuantitiesToOne(); return; }
+        var orderId = getOrderId();
+        if (!orderId) { warn('No order ID.'); return; }
+        fetch('/Orders/Orders/Edit?handler=NewServiceLine'
+            + '&orderId='   + encodeURIComponent(orderId)
+            + '&serviceId=' + encodeURIComponent(SERVICE_ID)
+            + '&quantity=1', {
+            method: 'POST',
+            headers: {
+                'Accept': '*/*',
+                'Content-Type': 'application/json; charset=utf-8',
+                'X-Requested-With': 'XMLHttpRequest',
+                'RequestVerificationToken': getCsrfToken() || ''
+            },
+            credentials: 'include',
+            body: ''
+        })
+        .then(function (r) { return r.ok ? r.text() : null; })
+        .then(function (html) { if (html) injectHtml(html); })
+        .catch(function (err) { warn('Fetch error: ' + err); });
+    }
+
+    poll('order-line-area', function () {
+        return document.getElementById('order-line-area');
+    }, function () {
+        setTimeout(function () {
+            addServiceLine();
+            observeForNewLines();
+        }, 500);
+    });
+
+    // =========================================================================
+    // PART 2 — TECH TIME ENTRY PANEL
+    // =========================================================================
+
+    var _iframe     = null;
+    var _techList   = null;
+    var _panelReady = false;
+
+    function getIframe() {
+        var te = document.querySelector('#collapseTimeExpanded iframe');
+        if (te) {
+            try {
+                if (te.contentDocument && te.contentDocument.querySelector('.k-input-value-text'))
+                    return te;
+            } catch (e) {}
+        }
+        return _iframe;
+    }
+
+    function getIframeDoc() {
+        var f = getIframe();
+        if (!f) return null;
+        try { return f.contentDocument || f.contentWindow.document; } catch (e) { return null; }
+    }
+
+    function getIframeWin() {
+        var f = getIframe();
+        if (!f) return null;
+        try { return f.contentWindow; } catch (e) { return null; }
+    }
+
+    function getJobId() {
+        var link = document.querySelector("a.monospaced[href*='Orders/Jobs/Edit']");
+        if (link) {
+            try { return new URL(link.href).searchParams.get('id'); } catch (e) {}
+        }
+        var f = getIframe();
+        if (!f) return null;
+        try { return new URL(f.src).searchParams.get('id'); } catch (e) { return null; }
+    }
+
+    function getCsrfFromIframe() {
+        var iDoc = getIframeDoc();
+        if (!iDoc) return null;
+        var t = iDoc.querySelector('input[name="__RequestVerificationToken"]');
+        return t ? t.value : null;
+    }
+
+    function findJobUrl() {
+        var link = document.querySelector("a.monospaced[href*='Orders/Jobs/Edit']");
+        return link ? link.href : null;
+    }
+
+    function waitForJobUrl() {
+        return new Promise(function (resolve) {
+            var existing = findJobUrl();
+            if (existing) return resolve(existing);
+            var obs = new MutationObserver(function () {
+                var link = findJobUrl();
+                if (link) { obs.disconnect(); resolve(link); }
+            });
+            obs.observe(document.body, { childList: true, subtree: true });
+            setTimeout(function () { obs.disconnect(); resolve(null); }, 30000);
+        });
+    }
+
+    function createHiddenIframe(jobUrl) {
+        if (_iframe) return;
+        var iframe = document.createElement('iframe');
+        iframe.src = jobUrl;
+        iframe.id  = 'tpHiddenJobFrame';
+        iframe.style.cssText = 'display:none';
+        document.body.appendChild(iframe);
+        _iframe = iframe;
+        log('Hidden iframe created.');
+    }
+
+    function waitForIframeReady(callback) {
+        poll('iframe ready', function () {
+            var iDoc = getIframeDoc();
+            return (iDoc && iDoc.querySelector('.k-input-value-text')) ? true : null;
+        }, callback, 60000, 800);
+    }
+
+    function releaseKendoGrid() {
+        try {
+            var iWin = getIframeWin();
+            if (!iWin || !iWin.jQuery) return;
+            var grid = iWin.jQuery('#serviceGrid').data('kendoGrid');
+            if (grid) {
+                grid.dataSource.data([]);
+                grid.destroy();
+                log('Kendo grid destroyed — memory released.');
+            }
+        } catch (e) {}
+    }
+
+    function getOrderRepName() {
+        var rows = document.querySelectorAll('table.lq-table-info th');
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].textContent.trim() === 'Order Rep') {
+                var td = rows[i].nextElementSibling;
+                if (td) {
+                    var span = td.querySelector('span');
+                    if (span && span.textContent.trim()) return span.textContent.trim();
+                }
+            }
+        }
+        return 'Unknown Tech';
+    }
+
+    function getInitials(name) {
+        return name.split(' ').filter(Boolean)
+            .map(function (w) { return w[0]; })
+            .join('').toUpperCase().slice(0, 2);
+    }
+
+    var TAG_HOURLY_NAME = 'TagSearch_115ac658-0136-4f3b-e15a-08daa4c0721f_input';
+
+    function setKendoTag(iDoc, iWin, inputName, value, done) {
+        var input = iDoc.querySelector('input[name="' + inputName + '"]');
+        if (!input) { warn('Tag input not found: ' + inputName); done(); return; }
+        var jEl = iWin.jQuery(input).closest('[data-role]');
+        var widget = jEl.data('kendoComboBox') || jEl.data('kendoDropDownList') || jEl.data('kendoAutoComplete');
+        if (!widget) {
+            input.value = value;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+            setTimeout(done, 300);
+            return;
+        }
+        widget.value(value);
+        widget.trigger('change');
+        setTimeout(done, 300);
+    }
+
+    function isValidTechEntry(description) {
+        return /^[A-Za-z]+\s+[A-Za-z].*\s-\sHours$/i.test((description || '').trim());
+    }
+
+    function loadTechList(callback) {
+        if (_techList) { callback(_techList); return; }
+
+        var iWin = getIframeWin();
+        var iDoc = getIframeDoc();
+        if (!iWin || !iWin.jQuery || !iDoc) return callback([]);
+        var kendoGrid = iWin.jQuery('#serviceGrid').data('kendoGrid');
+        if (!kendoGrid) return callback([]);
+
+        function doFetch() {
+            kendoGrid.dataSource.pageSize(50);
+            kendoGrid.dataSource.fetch(function () {
+                var data  = kendoGrid.dataSource.data();
+                var techs = [];
+                for (var i = 0; i < data.length; i++) {
+                    var desc = (data[i].Description || '').trim();
+                    if (isValidTechEntry(desc)) {
+                        techs.push({ name: desc.split(' - ')[0].trim(), serviceId: data[i].Id });
+                    }
+                }
+                techs.sort(function (a, b) { return a.name.localeCompare(b.name); });
+                _techList = techs;
+                log('Tech list loaded: ' + techs.length + ' entries (filtered).');
+
+                try {
+                    var clearBtn = iDoc.querySelector('button[onclick*="clearServiceSearch"]');
+                    if (clearBtn) clearBtn.click();
+                    else if (typeof iWin.clearServiceSearch === 'function') iWin.clearServiceSearch();
+                } catch (e) {}
+
+                releaseKendoGrid();
+                callback(techs);
+            });
+        }
+
+        setKendoTag(iDoc, iWin, TAG_HOURLY_NAME, 'hourly', function () {
+            setTimeout(doFetch, 400);
+        });
+    }
+
+    function getServiceIdForTech(techName, techs) {
+        var parts = techName.toLowerCase().split(' ');
+        var first = parts[0], last = parts[1] || '';
+        for (var i = 0; i < techs.length; i++) {
+            var n = techs[i].name.toLowerCase();
+            if (n.indexOf(first) !== -1 && (!last || n.indexOf(last) !== -1))
+                return techs[i].serviceId;
+        }
+        return null;
+    }
+
+    function getTotalHours() {
+        var iDoc = getIframeDoc();
+        if (!iDoc) return null;
+        var total = 0, found = false;
+        iDoc.querySelectorAll('input[id^="OrderLineQuantity_"]').forEach(function (el) {
+            var v = parseFloat(el.value);
+            if (!isNaN(v)) { total += v; found = true; }
+        });
+        return found ? Math.round(total * 100) / 100 : null;
+    }
+
+    function updateTotalDisplay() {
+        var el = document.getElementById('tp-total');
+        if (!el) return;
+        var total = getTotalHours();
+        el.textContent = total !== null ? total + 'h total across all techs' : '—';
+    }
+
+    function findTechMainLine(techName) {
+        var iDoc = getIframeDoc();
+        if (!iDoc) return null;
+        var first = techName.split(' ')[0].toLowerCase();
+        var last  = techName.split(' ')[1] ? techName.split(' ')[1].toLowerCase() : '';
+        var inputs = iDoc.querySelectorAll('input[id^="OrderLineQuantity_"]');
+        for (var i = 0; i < inputs.length; i++) {
+            var row = inputs[i].closest('tr');
+            if (!row) continue;
+            var cells = row.querySelectorAll('.condensedCell');
+            for (var j = 0; j < cells.length; j++) {
+                var t = cells[j].textContent.trim().toLowerCase();
+                if (t.indexOf(first) !== -1 && (!last || t.indexOf(last) !== -1))
+                    return { lineId: inputs[i].id.replace('OrderLineQuantity_', ''), input: inputs[i] };
+            }
+        }
+        return null;
+    }
+
+    function getSubLineQuantities(lineId) {
+        var iDoc = getIframeDoc();
+        if (!iDoc) return [];
+        var results = [];
+        iDoc.querySelectorAll('input[id^="OrderLineSourceQuantity_"]').forEach(function (el) {
+            if ((el.getAttribute('onchange') || '').indexOf(lineId) !== -1)
+                results.push({ id: el.id, input: el, value: parseFloat(el.value) || 0 });
+        });
+        return results;
+    }
+
+    function clickAddSourceLine(lineId) {
+        var iDoc = getIframeDoc(), iWin = getIframeWin();
+        if (!iDoc || !iWin) return false;
+        if (typeof iWin.addNewSourceLine === 'function') {
+            try { iWin.addNewSourceLine(lineId); return true; } catch (e) {}
+        }
+        var btns = iDoc.querySelectorAll('button[onclick*="addNewSourceLine"]');
+        for (var i = 0; i < btns.length; i++) {
+            if (btns[i].getAttribute('onclick').indexOf(lineId) !== -1) {
+                btns[i].click(); return true;
+            }
+        }
+        return false;
+    }
+
+    function updateMainLineTotal(lineId) {
+        var iDoc = getIframeDoc(), iWin = getIframeWin();
+        if (!iDoc || !iWin) return;
+        var subs  = getSubLineQuantities(lineId);
+        var total = Math.round(subs.reduce(function (s, x) { return s + x.value; }, 0) * 100) / 100;
+        var main  = iDoc.getElementById('OrderLineQuantity_' + lineId);
+        if (!main) return;
+        main.value = total;
+        main.focus();
+        var oc = main.getAttribute('onchange');
+        if (oc && typeof iWin.setLineQuantity === 'function') {
+            try {
+                var m = oc.match(/setLineQuantity\('[^']+',\s*([\d.]+),/);
+                iWin.setLineQuantity(lineId, m ? parseFloat(m[1]) : 1, main);
+            } catch (e) {}
+        }
+        main.dispatchEvent(new Event('change', { bubbles: true }));
+        main.dispatchEvent(new Event('input',  { bubbles: true }));
+        main.blur();
+    }
+
+    function clickSaveInIframe() {
+        var iDoc = getIframeDoc(), iWin = getIframeWin();
+        if (!iDoc) return;
+        if (iWin && typeof iWin.saveLines === 'function') { iWin.saveLines(); return; }
+        var btns = iDoc.querySelectorAll('button');
+        for (var i = 0; i < btns.length; i++) {
+            if (btns[i].innerHTML.indexOf('floppy-disk') !== -1) { btns[i].click(); return; }
+        }
+    }
+
+    function setFeedback(msg, ok) {
+        var el = document.getElementById('tp-feedback');
+        if (!el) return;
+        el.textContent = msg;
+        el.style.color = ok ? '#3B6D11' : '#c0392b';
+    }
+
+    function resetBtn() {
+        var btn = document.getElementById('tp-set');
+        if (btn) { btn.disabled = false; btn.textContent = 'Log Hours'; }
+    }
+
+    // -------------------------------------------------------------------------
+    // FIX: applyAndSave no longer calls setLineSourceQuantity (caused
+    // validateSourceQuantity crash). It also no longer dispatches redundant
+    // change/input events that re-triggered the validator.
+    // doAddSubLine now always targets the last sub-line input re-queried fresh
+    // from the DOM, avoiding stale references on second+ writes.
+    // -------------------------------------------------------------------------
+
+    function doAddSubLine(lineId, hours, techName, isNewLine) {
+        setFeedback('Logging hours...', true);
+
+        function applyAndSave(subInput) {
+            subInput.value = hours;
+            subInput.focus();
+            // Dispatch only 'change' — the app's onchange handler (setLineSourceQuantity)
+            // will fire naturally via the attribute, no manual JS call needed.
+            subInput.dispatchEvent(new Event('change', { bubbles: true }));
+            subInput.blur();
+            setTimeout(function () {
+                updateMainLineTotal(lineId);
+                setTimeout(function () {
+                    clickSaveInIframe();
+                    setFeedback('✔ ' + hours + 'h logged for ' + techName, true);
+                    resetBtn();
+                    setTimeout(updateTotalDisplay, 600);
+                }, 400);
+            }, 300);
+        }
+
+        if (isNewLine) {
+            // Re-query fresh from DOM — never use cached references
+            var existing = getSubLineQuantities(lineId);
+            if (existing.length > 0) { applyAndSave(existing[existing.length - 1].input); return; }
+        }
+
+        var before = getSubLineQuantities(lineId).length;
+        if (!clickAddSourceLine(lineId)) {
+            resetBtn();
+            return setFeedback('Could not find + button in iframe.', false);
+        }
+
+        poll('new sub-line', function () {
+            var subs = getSubLineQuantities(lineId);
+            return subs.length > before ? subs : null;
+        }, function (subs) {
+            // Always use the last sub-line, re-queried fresh — never rely on
+            // cached value comparisons which break on second+ calls
+            var lastInput = subs[subs.length - 1].input;
+            applyAndSave(lastInput);
+        }, 5000, 250);
+    }
+
+    function injectLabourLineIntoIframe(html) {
+        var iDoc = getIframeDoc();
+        if (!iDoc) return;
+        var tbody = null;
+        iDoc.querySelectorAll('tbody').forEach(function (tb) {
+            if (tb.querySelector('input[id^="OrderLineQuantity_"]')) tbody = tb;
+        });
+        if (!tbody) {
+            var tbs = iDoc.querySelectorAll('tbody');
+            if (tbs.length >= 4) tbody = tbs[3];
+        }
+        if (!tbody) return;
+        var tpl = iDoc.createElement('template');
+        tpl.innerHTML = html;
+        tpl.content.querySelectorAll('script').forEach(function (s) { s.remove(); });
+        tbody.appendChild(tpl.content);
+    }
+
+    function addLabourLineToJob(techName, serviceId, onDone) {
+        var jobId = getJobId();
+        var csrf  = getCsrfFromIframe();
+        if (!jobId)     return onDone(false, 'Could not find Job ID.');
+        if (!csrf)      return onDone(false, 'Could not find CSRF token.');
+        if (!serviceId) return onDone(false, 'No service ID for ' + techName + '.');
+
+        fetch('/Orders/Jobs/Edit?handler=NewServiceLine'
+            + '&jobId='     + jobId
+            + '&serviceId=' + serviceId
+            + '&quantity=1', {
+            method: 'POST',
+            headers: {
+                'Accept': '*/*',
+                'Content-Type': 'application/json; charset=utf-8',
+                'X-Requested-With': 'XMLHttpRequest',
+                'RequestVerificationToken': csrf
+            },
+            credentials: 'include',
+            body: ''
+        })
+        .then(function (r) { return r.ok ? r.text() : Promise.reject('POST ' + r.status); })
+        .then(function (html) {
+            if (!html) return onDone(false, 'Empty response.');
+            injectLabourLineIntoIframe(html);
+            onDone(true, '');
+        })
+        .catch(function (err) { onDone(false, 'Error: ' + err); });
+    }
+
+    function logHours(hours, techName, serviceId) {
+        var mainLine = findTechMainLine(techName);
+        if (mainLine) {
+            doAddSubLine(mainLine.lineId, hours, techName, false);
+        } else {
+            setFeedback('Adding labour line for ' + techName + '...', true);
+            addLabourLineToJob(techName, serviceId, function (ok, msg) {
+                if (!ok) { setFeedback(msg, false); resetBtn(); return; }
+                poll('tech main line after add', function () {
+                    return findTechMainLine(techName);
+                }, function (line) {
+                    setTimeout(function () { doAddSubLine(line.lineId, hours, techName, true); }, 300);
+                }, 10000, 500);
+            });
+        }
+    }
+
+    function updateBadge(name, isOrderRep) {
+        var nameDiv   = document.getElementById('tp-name');
+        var avatarDiv = document.getElementById('tp-avatar');
+        var subDiv    = document.getElementById('tp-sub');
+        var badge     = document.getElementById('tp-alt-badge');
+        if (nameDiv)   nameDiv.textContent   = name;
+        if (avatarDiv) avatarDiv.textContent = getInitials(name);
+        if (isOrderRep) {
+            if (avatarDiv) { avatarDiv.style.background = '#B5D4F4'; avatarDiv.style.color = '#0C447C'; }
+            if (subDiv)    subDiv.textContent = 'Order Rep';
+            if (badge)     badge.style.display = 'none';
+        } else {
+            if (avatarDiv) { avatarDiv.style.background = '#FAEEDA'; avatarDiv.style.color = '#854F0B'; }
+            if (subDiv)    subDiv.textContent = 'Assisting Tech';
+            if (badge)     { badge.style.display = 'inline-block'; badge.textContent = '≠ Order Rep'; }
+        }
+    }
+
+    function createPanel() {
+        if (_panelReady || document.getElementById('timePanelRoot')) return;
+        _panelReady = true;
+
+        var orderRep = getOrderRepName();
+        var initials = getInitials(orderRep);
+
+        var style = document.createElement('style');
+        style.textContent = [
+            '#timePanelRoot{position:fixed;bottom:24px;right:24px;z-index:99999;width:280px;background:#fff;border:1px solid #ddd;border-radius:10px;padding:14px 16px;font-family:system-ui,sans-serif;font-size:13px;color:#222;cursor:default;will-change:transform}',
+            '#timePanelRoot *{box-sizing:border-box}',
+            '#tp-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}',
+            '#tp-title{font-weight:600;font-size:14px}',
+            '#tp-close{background:none;border:none;font-size:20px;cursor:pointer;color:#888;line-height:1;padding:0}',
+            '#tp-close:hover{color:#333}',
+            '#tp-tech{display:flex;align-items:center;gap:9px;background:#f4f6f8;border-radius:7px;padding:8px 10px;margin-bottom:6px}',
+            '#tp-avatar{width:32px;height:32px;border-radius:50%;background:#B5D4F4;color:#0C447C;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;flex-shrink:0;transition:background .2s,color .2s}',
+            '#tp-name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+            '#tp-sub{font-size:11px;color:#888}',
+            '#tp-alt-badge{display:none;font-size:10px;background:#FAEEDA;color:#854F0B;border-radius:4px;padding:1px 6px;margin-left:4px;font-weight:600}',
+            '#tp-total-row{display:flex;align-items:center;justify-content:space-between;background:#EAF3DE;border-radius:6px;padding:5px 10px;margin-bottom:10px;font-size:12px}',
+            '#tp-total{font-weight:600;color:#3B6D11;font-size:13px}',
+            '#tp-total-lbl{color:#3B6D11;font-size:11px}',
+            '#tp-select-lbl{display:block;font-size:12px;color:#666;margin-bottom:4px}',
+            '#tp-tech-select{width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:12px;margin-bottom:10px;background:#fff}',
+            '#tp-tech-select:focus{outline:none;border-color:#378ADD}',
+            '#tp-lbl{display:block;font-size:12px;color:#666;margin-bottom:4px}',
+           '#tp-row{display:flex;gap:7px;align-items:center;margin-bottom:8px;flex-wrap:wrap}',
+            '#tp-hours{flex:1;min-width:80px;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px}',
+            '#tp-hours:focus{outline:none;border-color:#378ADD}',
+            '#tp-set{flex-shrink:0;padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;font-size:12px;white-space:nowrap;font-weight:600}',
+            '#tp-set:hover{background:#f0f0f0}',
+            '#tp-set:disabled{opacity:.5;cursor:not-allowed}',
+            '#tp-feedback{font-size:12px;min-height:16px;margin-top:4px}'
+        ].join('');
+        document.head.appendChild(style);
+
+        var panel = document.createElement('div');
+        panel.id = 'timePanelRoot';
+        panel.innerHTML = [
+            '<div id="tp-header">',
+            '  <span id="tp-title">⏱ Log Tech Time</span>',
+            '  <button id="tp-close" title="Close">&times;</button>',
+            '</div>',
+            '<div id="tp-tech">',
+            '  <div id="tp-avatar">' + initials + '</div>',
+            '  <div style="flex:1;min-width:0">',
+            '    <div style="display:flex;align-items:center;gap:4px">',
+            '      <div id="tp-name">' + orderRep + '</div>',
+            '      <span id="tp-alt-badge"></span>',
+            '    </div>',
+            '    <div id="tp-sub">Order Rep</div>',
+            '  </div>',
+            '</div>',
+            '<div id="tp-total-row">',
+            '  <span id="tp-total-lbl">Total hours logged</span>',
+            '  <span id="tp-total">Loading...</span>',
+            '</div>',
+            '<label id="tp-select-lbl" for="tp-tech-select">Log time for</label>',
+            '<select id="tp-tech-select"><option value="">Loading techs...</option></select>',
+            '<label for="tp-hours" id="tp-lbl">Hours to log</label>',
+            '<div id="tp-row">',
+            '  <input type="number" id="tp-hours" min="0.1" step="0.5" value="1.0" placeholder="e.g. 2.5" />',
+            '  <button id="tp-set">Log Hours</button>',
+            '</div>',
+            '<div id="tp-feedback"></div>'
+        ].join('');
+        document.body.appendChild(panel);
+
+        loadTechList(function (techs) {
+            var select = document.getElementById('tp-tech-select');
+            if (!select) return;
+            select.innerHTML = '';
+            var def = document.createElement('option');
+            def.value = orderRep; def.textContent = orderRep + ' (Order Rep)';
+            select.appendChild(def);
+            var sep = document.createElement('option');
+            sep.disabled = true; sep.textContent = '── Assisting Techs ──';
+            select.appendChild(sep);
+            techs.forEach(function (t) {
+                if (t.name.toLowerCase() === orderRep.toLowerCase()) return;
+                var opt = document.createElement('option');
+                opt.value = t.name; opt.textContent = t.name;
+                select.appendChild(opt);
+            });
+            select.value = orderRep;
+            updateTotalDisplay();
+        });
+
+        var isDragging = false, dragOffX, dragOffY;
+        var DRAG_IGNORE = { 'tp-close': 1, 'tp-set': 1, 'tp-hours': 1, 'tp-tech-select': 1 };
+        panel.addEventListener('pointerdown', function (e) {
+            if (DRAG_IGNORE[e.target.id]) return;
+            isDragging = true;
+            dragOffX = e.clientX - panel.getBoundingClientRect().left;
+            dragOffY = e.clientY - panel.getBoundingClientRect().top;
+            panel.setPointerCapture(e.pointerId);
+            panel.style.cursor = 'grabbing';
+        });
+        panel.addEventListener('pointermove', function (e) {
+            if (!isDragging) return;
+            panel.style.right  = 'auto';
+            panel.style.bottom = 'auto';
+            panel.style.left   = (e.clientX - dragOffX) + 'px';
+            panel.style.top    = (e.clientY - dragOffY) + 'px';
+        });
+        panel.addEventListener('pointerup', function () {
+            isDragging = false;
+            panel.style.cursor = '';
+        });
+        var hoursInput = document.getElementById('tp-hours');
+        hoursInput.addEventListener('focus', function () {
+            this.select();
+        });
+
+        hoursInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('tp-set').click();
+    }
+});
+        document.getElementById('tp-close').addEventListener('click', function () {
+            panel.remove();
+            _panelReady = false;
+        });
+
+        document.getElementById('tp-tech-select').addEventListener('change', function () {
+            updateBadge(this.value, this.value === orderRep);
+        });
+
+        document.getElementById('tp-set').addEventListener('click', function () {
+            var hours = parseFloat(document.getElementById('tp-hours').value);
+            if (isNaN(hours) || hours <= 0)
+                return setFeedback('Enter a valid number of hours.', false);
+            var select       = document.getElementById('tp-tech-select');
+            var selectedName = select ? select.value : orderRep;
+            var serviceId    = getServiceIdForTech(selectedName, _techList || []);
+            if (!serviceId)
+                return setFeedback('Could not find service ID for ' + selectedName + '.', false);
+            var btn = document.getElementById('tp-set');
+            btn.disabled = true; btn.textContent = 'Working...';
+            logHours(hours, selectedName, serviceId);
+            setTimeout(function () {
+                if (select) { select.value = orderRep; updateBadge(orderRep, true); }
+            }, 500);
+        });
+    }
+
+    function initPanel() {
+        waitForJobUrl().then(function (jobUrl) {
+            if (!jobUrl) { warn('No job URL found — panel skipped.'); return; }
+            var teIframe = document.querySelector('#collapseTimeExpanded iframe');
+            if (!teIframe) createHiddenIframe(jobUrl);
+            waitForIframeReady(createPanel);
+        });
+    }
+
+    initPanel();
+
+})();
