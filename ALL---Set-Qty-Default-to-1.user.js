@@ -7,14 +7,18 @@
 // ==/UserScript==
 (function () {
     'use strict';
-
-    // Don't run inside the Jobs iframe
     if (window.location.href.includes('/Orders/Jobs/Edit')) return;
 
     function fixInputs() {
-        document.querySelectorAll('input[type="number"].form-control').forEach(input => {
-            if (input.value === "0") {
-                input.value = "1";
+        // Only target qty inputs inside active/visible tab panes
+        // and only in the search grids (partPicker or servicePicker)
+        const activePanes = document.querySelectorAll(
+            '#partPicker.active input[id^="qtyInput_"], ' +
+            '#servicePicker.active input[id^="qtyInput_"]'
+        );
+        activePanes.forEach(input => {
+            if (input.value === '0') {
+                input.value = '1';
                 input.dispatchEvent(new Event('input', { bubbles: true }));
             }
         });
