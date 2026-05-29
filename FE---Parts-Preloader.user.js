@@ -2,9 +2,9 @@
 // @name         FE - Parts Preloader
 // @namespace    http://tampermonkey.net/
 // @version      3.7
+// @description  Caches full parts dataset in IndexedDB — instant load after first fetch
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Parts-Preloader.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Parts-Preloader.user.js
-// @description  Caches full parts dataset in IndexedDB — instant load after first fetch
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
 // ==/UserScript==
@@ -81,7 +81,7 @@
         _refreshBtn = document.createElement('button');
         _refreshBtn.textContent = '🔄 Refresh Parts';
         _refreshBtn.style.cssText = [
-            'position:fixed', 'bottom:16px', 'left:16px', 'z-index:99999',
+            'position:fixed', 'bottom:80px', 'left:16px', 'z-index:99999',
             'background:#378ADD', 'color:#fff', 'font-size:12px',
             'font-family:system-ui,sans-serif', 'padding:5px 10px',
             'border-radius:6px', 'border:none', 'cursor:pointer',
