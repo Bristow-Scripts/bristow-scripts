@@ -62,8 +62,7 @@
 
     .role-header.all    { background: #2c3e50; }
     .role-header.tech   { background: #1a6e40; }
-    .role-header.fe     { background: #1a3a8a; }
-    .role-header.sh     { background: #7b2d8b; }
+    .role-header.fesh   { background: #7b2d8b; }
 
     .role-header h2 {
       color: #fff;
@@ -84,6 +83,22 @@
 
     .script-list {
       padding: 8px 0;
+    }
+
+    .subheading {
+      padding: 8px 24px 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #aaa;
+      border-top: 1px solid #f0f0f0;
+      margin-top: 4px;
+    }
+
+    .subheading:first-child {
+      border-top: none;
+      margin-top: 0;
     }
 
     .script-item {
@@ -127,8 +142,7 @@
 
     .all  .install-btn { background: #2c3e50; }
     .tech .install-btn { background: #1a6e40; }
-    .fe   .install-btn { background: #1a3a8a; }
-    .sh   .install-btn { background: #7b2d8b; }
+    .fesh .install-btn { background: #7b2d8b; }
 
     footer {
       text-align: center;
@@ -182,7 +196,7 @@
     <div class="role-icon">🔧</div>
     <div>
       <h2>TECH — Technicians</h2>
-      <p>Optinal scripts for techs</p>
+      <p>Optional scripts for techs</p>
     </div>
   </div>
   <div class="script-list">
@@ -231,30 +245,33 @@
     <div class="script-item">
       <div class="script-info">
         <strong>Time Expanded Section Trimmed</strong>
-        <span>Adds link emmbeded in the main workorder below parts no need to open "job" link trimmed version</span>
+        <span>Adds link embedded in the main workorder below parts — no need to open "job" link (trimmed version)</span>
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Time-Expanded-Section-Trimmed.user.js">▶ Install</a>
     </div>
     <div class="script-item">
       <div class="script-info">
         <strong>Uppercase Forced Work Order Description</strong>
-        <span>Forces uppercase on WO fields and internal snag - hit save button to apply</span>
+        <span>Forces uppercase on WO fields and internal snag — hit save button to apply</span>
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Uppercase-Forced-work-order-description.user.js">▶ Install</a>
     </div>
   </div>
 </div>
 
-<!-- FE -->
-<div class="role-section fe">
-  <div class="role-header fe">
-    <div class="role-icon">📋</div>
+<!-- FE + SH combined -->
+<div class="role-section fesh">
+  <div class="role-header fesh">
+    <div class="role-icon">📋📦</div>
     <div>
-      <h2>FE — Front End / Estimators</h2>
+      <h2>FE / SH — Front End &amp; Shop</h2>
       <p>Install ALL scripts above first</p>
     </div>
   </div>
   <div class="script-list">
+
+    <div class="subheading">FE — Front End / Estimators</div>
+
     <div class="script-item">
       <div class="script-info">
         <strong>Force Contact Section Expanded</strong>
@@ -279,26 +296,16 @@
     <div class="script-item">
       <div class="script-info">
         <strong>Time Expanded Section Full Version</strong>
-        <span>Adds below the add parts section full version - the job link emmbeded in the main work order</span>
+        <span>Adds below the add parts section full version — the job link embedded in the main work order</span>
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Time-Expanded-Section-full-version.user.js">▶ Install</a>
     </div>
-  </div>
-</div>
 
-<!-- SH -->
-<div class="role-section sh">
-  <div class="role-header sh">
-    <div class="role-icon">📦</div>
-    <div>
-      <h2>SH — Shop / Shipping</h2>
-      <p>Install ALL scripts above first</p>
-    </div>
-  </div>
-  <div class="script-list">
+    <div class="subheading">SH — Shop / Shipping</div>
+
     <div class="script-item">
       <div class="script-info">
-        <strong>Auto Add Labor & Process W/ WO Desc</strong>
+        <strong>Auto Add Labor &amp; Process W/ WO Desc</strong>
         <span>Auto-fills and processes work orders</span>
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Auto-Add-Labor-Process-W-WO-Desc.user.js">▶ Install</a>
@@ -317,6 +324,7 @@
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js">▶ Install</a>
     </div>
+
   </div>
 </div>
 
