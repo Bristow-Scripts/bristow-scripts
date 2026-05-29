@@ -58,9 +58,3 @@ Auto-updating userscripts for the Bristow app.
 2. Bump the `@version` number (e.g. `1.0` → `1.1`)
 3. Commit and push to `main`
 4. Everyone gets the update within 24 hours, or they can manually click **Check for updates** in the Tampermonkey dashboard
-
-## Scripts NOT in this repo (local install only)
-
-- **Bob - WO Auto-Fill** — personal work order templates
-- **SH - Bristow QZ Tray Direct Print** — contains printer credentials
-- **WIP scripts** — not ready for deployment
