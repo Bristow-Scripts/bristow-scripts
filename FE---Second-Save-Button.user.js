@@ -2,8 +2,6 @@
 // @name         FE - Second Save Button
 // @namespace    http://tampermonkey.net/
 // @version      1.4
-// @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Second-Save-Button.user.js
-// @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Second-Save-Button.user.js
 // @description  Adds back the missing second Save button in the header
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
