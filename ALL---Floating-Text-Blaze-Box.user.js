@@ -2,8 +2,6 @@
 // @name         ALL - Floating Text Blaze Box
 // @namespace    http://tampermonkey.net/
 // @version      1.3
-// @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Floating-Text-Blaze-Box.user.js
-// @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Floating-Text-Blaze-Box.user.js
 // @description  Adds a floating textbox for Text Blaze
 // @match        https://bristow-app.azurewebsites.net/*
 // @grant        none
