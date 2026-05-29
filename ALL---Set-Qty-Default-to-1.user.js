@@ -1,5 +1,6 @@
 // ==UserScript==
 // @name         ALL - Set Qty Default to 1
+// @version      2.0
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Set-Qty-Default-to-1.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Set-Qty-Default-to-1.user.js
