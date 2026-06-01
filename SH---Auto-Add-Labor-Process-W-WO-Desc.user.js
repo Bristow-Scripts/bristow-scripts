@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - Auto Add Labor & Process W/ WO Desc.
 // @namespace    http://tampermonkey.net/
-// @version      2.2
+// @version      2.3
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Auto-Add-Labor-Process-W-WO-Desc.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Auto-Add-Labor-Process-W-WO-Desc.user.js
 // @description  Automatically fills work order desc, adds a Service line, sets to Job, quantity 1, saves, checks, and processes
@@ -43,20 +43,27 @@
         }
     }
 
-    function setQuantitiesToOne() {
-        document.querySelectorAll('input[id^="OrderLineQuantityMask_"]').forEach(function(input) {
-            if (parseFloat(input.value) === 0 || input.value === '') {
-                input.value = '1';
-                // Only fire change if the page function is actually available
-                // to avoid the "setLineSourceCostForex is not defined" spam
-                if (typeof setLineSourceCostForex === 'function') {
-                    input.dispatchEvent(new Event('change', { bubbles: true }));
-                } else {
-                    // Silently set value without triggering the broken onchange
-                    try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(e) {}
-                }
+    // Only set quantity to 1 on the specific service line row — not all inputs
+    function setServiceLineQuantityToOne() {
+        var row = findServiceRow();
+        if (!row) return;
+        var input = row.querySelector('input[id^="OrderLineQuantityMask_"]');
+        if (input && (parseFloat(input.value) === 0 || input.value === '')) {
+            input.value = '1';
+            try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(e) {}
+            console.log('[AutoLine] Service line quantity set to 1.');
+        }
+    }
+
+    function findServiceRow() {
+        var rows = document.querySelectorAll('#order-line-area tbody tr');
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].innerHTML.indexOf('S-100542') !== -1
+             || rows[i].innerHTML.indexOf(SERVICE_ID) !== -1) {
+                return rows[i];
             }
-        });
+        }
+        return null;
     }
 
     function setSourceTypeToJob() {
@@ -136,7 +143,7 @@
         setTimeout(function() {
             setSourceTypeToJob();
             setTimeout(function() {
-                setQuantitiesToOne();
+                setServiceLineQuantityToOne(); // scoped — only touches service line
                 setTimeout(function() {
                     if (typeof saveLines === 'function') {
                         console.log('[AutoLine] Saving lines...');
@@ -151,14 +158,13 @@
     }
 
     function tableHasLines() {
-        return document.querySelectorAll('input[id^="OrderLineQuantityMask_"]').length > 0;
+        return !!findServiceRow();
     }
 
     function addServiceLine() {
         if (tableHasLines()) {
             console.log('[AutoLine] Lines already exist, skipping auto-add.');
-            setQuantitiesToOne();
-            return;
+            return; // removed setQuantitiesToOne() here — was stamping all rows
         }
 
         var urlParams = new URLSearchParams(window.location.search);
@@ -211,8 +217,6 @@
         var table = document.getElementById('order-line-area');
         if (!table) return;
         var observer = new MutationObserver(function(mutations) {
-            // Only act on mutations that actually added quantity inputs,
-            // not every single DOM change (which caused the spam)
             var hasNewInputs = mutations.some(function(m) {
                 return Array.from(m.addedNodes).some(function(node) {
                     return node.nodeType === 1 && (
@@ -222,7 +226,7 @@
                 });
             });
             if (hasNewInputs) {
-                setQuantitiesToOne();
+                setServiceLineQuantityToOne(); // scoped — only touches service line
             }
         });
         observer.observe(table, { childList: true, subtree: true });
