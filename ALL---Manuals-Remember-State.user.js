@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         ALL - Manuals remember state
 // @namespace    http://tampermonkey.net/
-// @version      2.8
+// @version      3.0
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Manuals-Remember-State.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Manuals-Remember-State.user.js
 // @description  Default expanded, remembers collapse state, re-applies state on re-renders (e.g. after Save button click)
-// @match        *://*/*
+// @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
 // ==/UserScript==
 
