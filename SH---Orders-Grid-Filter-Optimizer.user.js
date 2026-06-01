@@ -1,9 +1,7 @@
 // ==UserScript==
 // @name         SH - Orders Grid Filter Optimizer
 // @namespace    http://tampermonkey.net/
-// @version      3.9
-// @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
-// @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
+// @version      4.0
 // @description  Preloads ALL orders into IndexedDB, switches grid to client-side filtering for instant results. Defaults Show Complete & Cancelled to ON. Replaces SH - Show Complete and Cancelled - Default ON.
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders
 // @grant        none
@@ -286,6 +284,7 @@
             current = current.filter(function (f) { return f.field !== 'BristowStatus'; });
 
             current.push({ field: 'BristowStatus', operator: 'eq', value: 'Work in Progress' });
+            current.push({ field: 'PrefixedOrderNumber', operator: 'contains', value: 'YEG' });
             ds.filter(current);
 
             // Turn off Show Complete & Cancelled and apply that filter too
