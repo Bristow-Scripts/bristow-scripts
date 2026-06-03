@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FE - Parts Preloader
 // @namespace    http://tampermonkey.net/
-// @version      4.0
+// @version      4.1
 // @description  Caches full parts dataset in IndexedDB — instant load after first fetch
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Parts-Preloader.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Parts-Preloader.user.js
@@ -51,7 +51,14 @@
     // =========================================================================
 
     function silentFetchAndCache(onDone) {
-        var url = '../../../Catalog/Parts/PartList/Index?handler=Parts';
+        // Use the same endpoint as the Kendo grid to ensure StockedTotal and DocCount are returned
+        var params = [
+            'sort%5B0%5D%5Bfield%5D=Description',
+            'sort%5B0%5D%5Bdir%5D=asc',
+            'page=1',
+            'pageSize=999999'
+        ].join('&');
+        var url = '/Orders/Orders/Edit?handler=Parts&' + params;
         fetch(url, { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (data) {
