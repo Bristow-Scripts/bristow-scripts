@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FE - Parts Preloader
 // @namespace    http://tampermonkey.net/
-// @version      4.1
+// @version      4.2
 // @description  Caches full parts dataset in IndexedDB — instant load after first fetch
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Parts-Preloader.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Parts-Preloader.user.js
@@ -70,12 +70,12 @@
                 }
                 var payload = { timestamp: Date.now(), records: records };
                 dbSet(CACHE_KEY, payload, function () {
-                    // Push fresh data into grid by overriding transport — grid stays usable
+                    // Update transport so next user search uses fresh data
+                    // Do NOT call read() — avoids triggering the loading spinner mid-use
                     if (_currentGrid) {
                         _currentGrid.dataSource.transport.read = function (options) {
                             options.success(records);
                         };
-                        _currentGrid.dataSource.read();
                     }
                     console.log('[PartsCache] Silent fetch saved ' + records.length + ' parts.');
                     onDone && onDone(true);
@@ -198,14 +198,18 @@
 
     function injectFromCache(grid, records) {
         try {
+            // Override transport so future reads (user searches) use cached data
             grid.dataSource.transport.read = function (options) {
                 options.success(records);
             };
-            grid.dataSource.read();
+            // Use data() to set records directly — avoids triggering the Kendo
+            // loading spinner that read() causes
+            grid.dataSource.data(records);
+            // Hide any stray loading overlay
+            try { kendo.ui.progress(grid.wrapper, false); } catch (e2) {}
             console.log('[PartsCache] Injected ' + records.length + ' parts from cache.');
         } catch (e) {
-            console.warn('[PartsCache] Inject failed, falling back to server fetch:', e);
-            grid.dataSource.read();
+            console.warn('[PartsCache] Inject failed:', e);
         }
     }
 
