@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - Orders Grid Filter Optimizer
 // @namespace    http://tampermonkey.net/
-// @version      4.0
+// @version      4.1
 // @description  Preloads ALL orders into IndexedDB, switches grid to client-side filtering for instant results. Defaults Show Complete & Cancelled to ON. Replaces SH - Show Complete and Cancelled - Default ON.
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders
 // @grant        none
@@ -275,35 +275,55 @@
             'font-family:system-ui,sans-serif','font-weight:600','cursor:pointer'
         ].join(';');
         wipBtn.addEventListener('click', function () {
-            var grid = $('#grid').data('kendoGrid');
-            if (!grid) return;
-            var ds = grid.dataSource;
-            var current = ds.filter() ? ds.filter().filters.slice() : [];
+            // Refresh orders first so the list is always current before filtering
+            wipBtn.disabled = true;
+            wipBtn.textContent = '⏳ Refreshing...';
+            showStatus('🔄 Refreshing orders...', '#555');
 
-            // Remove existing BristowStatus filter
-            current = current.filter(function (f) { return f.field !== 'BristowStatus'; });
+            fetchAllOrders(function (err, records) {
+                wipBtn.disabled = false;
+                wipBtn.textContent = '🔧 WIP Orders';
+                wipBtn.style.background = '#6c3483';
 
-            current.push({ field: 'BristowStatus', operator: 'eq', value: 'Work in Progress' });
-            current.push({ field: 'PrefixedOrderNumber', operator: 'contains', value: 'YEG' });
-            ds.filter(current);
-
-            // Turn off Show Complete & Cancelled and apply that filter too
-            try {
-                var sw = $('#wCompleted').data('kendoSwitch');
-                if (sw && sw.check()) {
-                    sw.check(false);
-                    applyCompletedFilter();
+                if (!err && records && records.length > 0) {
+                    dbSet(CACHE_KEY, { timestamp: Date.now(), records: records });
+                    injectIntoGrid(records);
+                    showStatus('✔ Orders refreshed', '#27ae60');
+                    hideStatus(1500);
+                } else {
+                    showStatus('⚠ Refresh failed — using cached data', '#e67e22');
+                    hideStatus(2500);
                 }
-            } catch (e) {}
 
-            // Sort by OrderRep alphabetically
-            try {
-                var grid = $('#grid').data('kendoGrid');
-                if (grid) grid.dataSource.sort({ field: 'OrderRep', dir: 'asc' });
-            } catch (e) {}
+                // Apply WIP filters after refresh (or on cached data if refresh failed)
+                setTimeout(function () {
+                    var grid = $('#grid').data('kendoGrid');
+                    if (!grid) return;
+                    var ds = grid.dataSource;
+                    var current = ds.filter() ? ds.filter().filters.slice() : [];
 
-            // Visually indicate WIP is active
-            wipBtn.style.background = '#6c3483';
+                    // Remove existing BristowStatus filter
+                    current = current.filter(function (f) { return f.field !== 'BristowStatus'; });
+
+                    current.push({ field: 'BristowStatus', operator: 'eq', value: 'Work in Progress' });
+                    current.push({ field: 'PrefixedOrderNumber', operator: 'contains', value: 'YEG' });
+                    ds.filter(current);
+
+                    // Turn off Show Complete & Cancelled
+                    try {
+                        var sw = $('#wCompleted').data('kendoSwitch');
+                        if (sw && sw.check()) {
+                            sw.check(false);
+                            applyCompletedFilter();
+                        }
+                    } catch (e) {}
+
+                    // Sort by OrderRep alphabetically
+                    try {
+                        if (grid) grid.dataSource.sort({ field: 'OrderRep', dir: 'asc' });
+                    } catch (e) {}
+                }, 100);
+            });
         });
 
         var printBtn = document.createElement('button');
