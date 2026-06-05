@@ -4,7 +4,7 @@
 // @version      1.1
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Grow-Work-Order-Description.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Grow-Work-Order-Description.user.js
-// @match        https://bristow-app.azurewebsites.net/*
+// @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
 // @run-at       document-end
 // ==/UserScript==
