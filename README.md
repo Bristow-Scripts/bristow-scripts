@@ -17,39 +17,39 @@ Auto-updating userscripts for the Bristow app.
 
 | Script | Description |
 |--------|-------------|
-| [Floating Text Blaze Box](ALL---Floating-Text-Blaze-Box.user.js) | Adds a floating macro input box |
-| [Set Qty Default to 1](ALL---Set-Qty-Default-to-1.user.js) | Auto-sets quantity inputs to 1 |
-| [Manuals Remember State](ALL---Manuals-Remember-State.user.js) | Remembers collapsed/expanded state of the manuals section |
+| [Floating Text Blaze Box](ALL---Floating-Text-Blaze-Box.user.js) | Adds a small floating text box in the toolbar for pasting Text Blaze macros. Type your shortcut and let Text Blaze expand it. No auto-update. |
+| [Set Qty Default to 1](ALL---Set-Qty-Default-to-1.user.js) | When adding parts or services, quantity defaults to 1 instead of 0 — saves a click every time. |
+| [Manuals Remember State](ALL---Manuals-Remember-State.user.js) | The Manuals section remembers whether you left it open or closed, even after saving or editing the order. |
 
 ### TECH — Technicians
 
 | Script | Description |
 |--------|-------------|
-| [Auto Add Labor + Tech Time Panel](TECH---Auto-Add-Labor-Tech-Time-Panel.user.js) | Adds labor service line and processes and adds time logging panel |
-| [Auto Grow Work Order Description](TECH---Auto-Grow-Work-Order-Description.user.js) | Auto-resizes the WO description field |
-| [Force Contact Section Collapsed](TECH---Force-Contact-Section-Collapsed.user.js) | Collapses contact section by default |
-| [Hide Totals Footer](TECH---Hide-Totals-Footer.user.js) | Hides the order totals section |
-| [Orders Grid Filter Optimizer](TECH---Orders-Grid-Filter-Optimizer.user.js) | Makes the Customer orders page faster and easier to navigate (completed OFF by default) |
-| [Parts Preloader](TECH---Parts-Preloader.user.js) | Caches parts data for instant load |
-| [Time Expanded Section Trimmed](TECH---Time-Expanded-Section-Trimmed.user.js) | Adds link embedded in the main workorder below parts — no need to open "job" link (trimmed version) |
-| [Uppercase Forced Work Order Description](TECH---Uppercase-Forced-work-order-description.user.js) | Forces uppercase on WO fields and internal snag — hit save button to apply |
+| [Auto Add Labor + Tech Time Panel](TECH---Auto-Add-Labor-Tech-Time-Panel.user.js) | Automatically adds and processes the Labour service line on every work order. Also adds a floating panel to log tech hours directly from the order page without opening the Job. |
+| [Auto Grow Work Order Description](TECH---Auto-Grow-Work-Order-Description.user.js) | The Work Order Description text box grows automatically as you type so you can always see the full text. |
+| [Force Contact Section Collapsed](TECH---Force-Contact-Section-Collapsed.user.js) | Keeps the Contact section collapsed by default. Techs rarely need it — this keeps it out of the way. |
+| [Hide Totals Footer](TECH---Hide-Totals-Footer.user.js) | Hides the cost totals bar at the bottom of the order page. Techs don't set pricing so this removes the distraction. |
+| [Orders Grid Filter Optimizer](TECH---Orders-Grid-Filter-Optimizer.user.js) | Makes the Customer Orders list much faster by loading all orders locally. Adds WIP filter, Clear Filters, and Order Status dropdown. Completed and Cancelled orders are hidden by default. |
+| [Parts Preloader](TECH---Parts-Preloader.user.js) | Loads and caches the full parts list so searching for parts is instant. Refreshes once per day automatically — use the Refresh Parts button to force an update. |
+| [Time Expanded Section Trimmed](TECH---Time-Expanded-Section-Trimmed.user.js) | Adds a Time Expanded section below the parts list showing hours logged on the job. No need to open the Job separately. Clutter removed — shows service lines only. |
+| [Uppercase Forced Work Order Description](TECH---Uppercase-Forced-work-order-description.user.js) | Automatically converts the Work Order Description, Customer Snag, and Internal Snag to uppercase when you save. |
 
 ### FE — Front End / Estimators
 
 | Script | Description |
 |--------|-------------|
-| [Force Contact Section Expanded](FE---Force-Contact-Section-Expanded.user.js) | Keeps contact section expanded |
-| [Manuals Section Collapsed Default](FE---Manuals-Section-Collapsed-Default.user.js) | Collapses manuals section by default |
-| [Second Save Button](FE---Second-Save-Button.user.js) | Adds a second fixed Save button for line items |
-| [Time Expanded Section Full Version](FE---Time-Expanded-Section-full-version.user.js) | Adds below the add parts section full version — the job link embedded in the main work order |
-| [Parts Preloader](FE---Parts-Preloader.user.js) | Caches full parts dataset in IndexedDB — instant load after first fetch |
+| [Force Contact Section Expanded](FE---Force-Contact-Section-Expanded.user.js) | Keeps the Contact section expanded by default. Front end staff need this visible to verify contact details. |
+| [Manuals Section Collapsed Default](FE---Manuals-Section-Collapsed-Default.user.js) | Collapses the Manuals section by default to keep the order page tidier for front end staff. |
+| [Second Save Button](FE---Second-Save-Button.user.js) | Adds a second Save button fixed to the screen for saving order line items — useful when scrolled far down. No auto-update. |
+| [Time Expanded Section Full Version](FE---Time-Expanded-Section-full-version.user.js) | Adds a Time Expanded section below the parts list with the full job view embedded — shows all service lines and hours logged. |
+| [Parts Preloader](FE---Parts-Preloader.user.js) | Loads and caches the full parts list so searching for parts is instant. Refreshes every hour automatically — use the Refresh Parts button to force an update. |
 
 ### SH — Shop / Shipping
 
 | Script | Description |
 |--------|-------------|
-| [Auto Add Labor & Process W/ WO Desc](SH---Auto-Add-Labor-Process-W-WO-Desc.user.js) | Auto-fills and processes work orders |
-| [Orders Grid Filter Optimizer](SH---Orders-Grid-Filter-Optimizer.user.js) | Fast client-side orders grid (completed ON by default) |
+| [Auto Add Labor & Process W/ WO Desc](SH---Auto-Add-Labor-Process-W-WO-Desc.user.js) | Automatically fills the standard Work Order Description template, adds the Labour service line, sets it to Job type, and processes it in one step. |
+| [Orders Grid Filter Optimizer](SH---Orders-Grid-Filter-Optimizer.user.js) | Makes the Customer Orders list much faster by loading all orders locally. Adds WIP filter, Clear Filters, Print List, and Order Status dropdown. Completed and Cancelled orders shown by default. |
 
 ---
 
