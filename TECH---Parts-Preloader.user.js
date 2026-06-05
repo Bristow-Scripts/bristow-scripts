@@ -1,6 +1,7 @@
 // ==UserScript==
 // @name         TECH - Parts Preloader
-// @version      4.1
+// @namespace    http://tampermonkey.net/
+// @version      4.2
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Parts-Preloader.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Parts-Preloader.user.js
 // @description  Caches full parts dataset in IndexedDB — instant load after first fetch
@@ -15,14 +16,10 @@
     var DB_VERSION = 1;
     var STORE_NAME = 'parts';
     var CACHE_KEY  = 'allParts';
-    var MAX_AGE_MS = 60 * 60 * 1000; // refresh cache every hour
+    var MAX_AGE_MS = 24 * 60 * 60 * 1000; // refresh cache once per day
 
-    // =========================================================================
-    // STATUS INDICATOR
-    // =========================================================================
-
-    var _indicator  = null;
-    var _refreshBtn = null;
+    var _indicator   = null;
+    var _refreshBtn  = null;
     var _currentGrid = null;
 
     function showStatus(msg, color) {
@@ -43,10 +40,17 @@
         _indicator.textContent      = msg;
     }
 
-    // Silent fetch — fetches fresh parts directly without going through Kendo
-    // so the grid stays fully usable during the refresh
+    function hideStatus(delay) {
+        setTimeout(function () {
+            if (_indicator) _indicator.style.opacity = '0';
+        }, delay || 2000);
+    }
+
+    // =========================================================================
+    // SILENT FETCH: fetch fresh parts via fetch() — never touches Kendo transport
+    // =========================================================================
+
     function silentFetchAndCache(onDone) {
-        // Use the same endpoint as the Kendo grid — this guarantees StockedTotal and DocCount are present
         var params = [
             'sort%5B0%5D%5Bfield%5D=Description',
             'sort%5B0%5D%5Bdir%5D=asc',
@@ -65,12 +69,10 @@
                 }
                 var payload = { timestamp: Date.now(), records: records };
                 dbSet(CACHE_KEY, payload, function () {
-                    // Inject fresh data into grid without triggering server transport
                     if (_currentGrid) {
                         _currentGrid.dataSource.transport.read = function (options) {
                             options.success(records);
                         };
-                        _currentGrid.dataSource.read();
                     }
                     console.log('[PartsCache] Silent fetch saved ' + records.length + ' parts.');
                     onDone && onDone(true);
@@ -111,12 +113,6 @@
         document.body.appendChild(_refreshBtn);
     }
 
-    function hideStatus(delay) {
-        setTimeout(function () {
-            if (_indicator) _indicator.style.opacity = '0';
-        }, delay || 2000);
-    }
-
     // =========================================================================
     // INDEXEDDB HELPERS
     // =========================================================================
@@ -155,8 +151,8 @@
     // =========================================================================
 
     function waitForGrid(callback) {
-        var tries   = 0;
-        var maxTries = 60; // up to ~12 seconds
+        var tries    = 0;
+        var maxTries = 60;
         var tid = setInterval(function () {
             tries++;
             try {
@@ -179,64 +175,35 @@
     // =========================================================================
 
     function interceptAndCache(grid) {
-        var originalSuccess = grid.dataSource.options.transport.read.success
-                           || grid.dataSource.transport.options.read.success;
-
-        // Hook into dataSource change event — fires after data is loaded
         grid.dataSource.bind('change', function () {
             var data = grid.dataSource.data();
             if (!data || data.length === 0) return;
-
-            // Convert Kendo ObservableArray to plain objects
             var plain = [];
             for (var i = 0; i < data.length; i++) {
                 plain.push(data[i].toJSON ? data[i].toJSON() : data[i]);
             }
-
-            var payload = {
-                timestamp : Date.now(),
-                records   : plain
-            };
-
-            dbSet(CACHE_KEY, payload, function (err) {
-                if (err) {
-                    console.warn('[PartsCache] Save failed:', err);
-                } else {
-                    console.log('[PartsCache] Saved ' + plain.length + ' parts to IndexedDB.');
-                }
+            dbSet(CACHE_KEY, { timestamp: Date.now(), records: plain }, function (err) {
+                if (err) console.warn('[PartsCache] Save failed:', err);
+                else console.log('[PartsCache] Saved ' + plain.length + ' parts to IndexedDB.');
             });
         });
     }
 
     // =========================================================================
-    // INJECT: load cached data directly into grid, skip server fetch
+    // INJECT: load cached data into grid, skip server fetch
     // =========================================================================
 
     function injectFromCache(grid, records) {
         try {
-            // Override the transport read so Kendo doesn't hit the server
             grid.dataSource.transport.read = function (options) {
                 options.success(records);
             };
-
-            // Trigger read — will now use our override
-            grid.dataSource.read();
+            grid.dataSource.data(records);
+            try { kendo.ui.progress(grid.wrapper, false); } catch (e2) {}
             console.log('[PartsCache] Injected ' + records.length + ' parts from cache.');
         } catch (e) {
-            console.warn('[PartsCache] Inject failed, falling back to server fetch:', e);
-            grid.dataSource.read();
+            console.warn('[PartsCache] Inject failed:', e);
         }
-    }
-
-    // =========================================================================
-    // BACKGROUND REFRESH: re-fetch from server silently to update cache
-    // =========================================================================
-
-    function backgroundRefresh(grid) {
-        // Restore normal server transport then read silently — no status shown
-        grid.dataSource.transport.read = grid.dataSource.options.transport.read;
-        interceptAndCache(grid);
-        grid.dataSource.read();
     }
 
     // =========================================================================
@@ -249,13 +216,11 @@
             injectRefreshButton();
 
             dbGet(CACHE_KEY, function (err, cached) {
-
                 var now     = Date.now();
                 var isStale = !cached || (now - cached.timestamp) > MAX_AGE_MS;
                 var isEmpty = !cached || !cached.records || cached.records.length === 0;
 
                 if (isEmpty) {
-                    // No cache yet — let Kendo fetch normally and save the result
                     showStatus('⏳ Loading parts (first time)...', '#555');
                     interceptAndCache(grid);
                     grid.dataSource.read();
@@ -265,24 +230,21 @@
                             hideStatus(2500);
                         }
                     });
-
                 } else if (isStale) {
-                    // Cache exists but is old — inject cache instantly, refresh in background
                     showStatus('⚡ Parts loaded from cache', '#27ae60');
                     injectFromCache(grid, cached.records);
                     hideStatus(1500);
-                    // After a short delay, silently refresh cache in background
+                    // Background refresh via fetch — never touches Kendo transport
                     setTimeout(function () {
-                        backgroundRefresh(grid);
+                        silentFetchAndCache(function (success) {
+                            console.log('[PartsCache] Background refresh ' + (success ? 'succeeded' : 'failed'));
+                        });
                     }, 5000);
-
                 } else {
-                    // Cache is fresh — inject instantly
                     showStatus('⚡ Parts loaded from cache', '#27ae60');
                     injectFromCache(grid, cached.records);
                     hideStatus(1500);
                 }
-
             });
         });
     });
