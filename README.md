@@ -5,7 +5,7 @@ Auto-updating userscripts for the Bristow app.
 ## Installation
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser
-2. Go to the [install page](https://bristow-scripts.github.io/bristow-scripts)
+2. Go to the [install page](https://bristow-scripts.github.io/bristow-scripts/)
 3. Click **▶ Install** on the scripts for your role
 4. Scripts update automatically once per day
 
