@@ -1,7 +1,9 @@
 // ==UserScript==
 // @name         SH - Orders Grid Filter Optimizer
 // @namespace    http://tampermonkey.net/
-// @version      4.1
+// @version      4.2
+// @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
+// @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @description  Preloads ALL orders into IndexedDB, switches grid to client-side filtering for instant results. Defaults Show Complete & Cancelled to ON. Replaces SH - Show Complete and Cancelled - Default ON.
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders
 // @grant        none
