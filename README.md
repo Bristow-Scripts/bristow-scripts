@@ -43,6 +43,7 @@ Auto-updating userscripts for the Bristow app.
 | [Second Save Button](FE---Second-Save-Button.user.js) | Adds a second Save button fixed to the screen for saving order line items — useful when scrolled far down. No auto-update. |
 | [Time Expanded Section Full Version](FE---Time-Expanded-Section-full-version.user.js) | Adds a Time Expanded section below the parts list with the full job view embedded — shows all service lines and hours logged. |
 | [Parts Preloader](FE---Parts-Preloader.user.js) | Loads and caches the full parts list so searching for parts is instant. Refreshes every hour automatically — use the Refresh Parts button to force an update. |
+| [Net 0 Customer Warning](FE---Net-0-Customer-Warning.user.js) | Fetches the customer's payment terms when you open a work order. If their terms are Net 0, the order info panel turns red and a warning badge appears next to the company name. |
 
 ### SH — Shop / Shipping
 
