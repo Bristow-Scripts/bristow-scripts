@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - Orders Grid Filter Optimizer
 // @namespace    http://tampermonkey.net/
-// @version      4.2
+// @version      4.4
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @description  Preloads ALL orders into IndexedDB, switches grid to client-side filtering for instant results. Defaults Show Complete & Cancelled to ON. Replaces SH - Show Complete and Cancelled - Default ON.
@@ -92,21 +92,17 @@
         var grid  = $grid.data('kendoGrid');
         if (!grid) return;
 
-        // Save current filter and sort state before destroying
         var savedFilter = grid.dataSource.filter() ? JSON.parse(JSON.stringify(grid.dataSource.filter())) : null;
         var savedSort   = grid.dataSource.sort()   ? JSON.parse(JSON.stringify(grid.dataSource.sort()))   : null;
         var savedPage   = grid.dataSource.page()   || 1;
 
-        // Grab existing column config so we don't lose any customisation
         var columns  = grid.options.columns;
         var pageable = grid.options.pageable;
         var sortable = grid.options.sortable;
 
-        // Destroy existing grid
         grid.destroy();
         $grid.empty();
 
-        // Recreate in pure client-side mode with all records as local data
         $grid.kendoGrid({
             dataSource: {
                 data:     records,
@@ -129,7 +125,6 @@
             noRecords:  { template: "<div style='padding:10px;'>No records found.</div>" }
         });
 
-        // Restore filter, sort and page after recreating
         var newGrid = $grid.data('kendoGrid');
         if (newGrid) {
             if (savedSort)   newGrid.dataSource.sort(savedSort);
@@ -153,13 +148,11 @@
             var ds = grid.dataSource;
             var current = ds.filter() ? ds.filter().filters.slice() : [];
 
-            // Remove existing completed filter
             current = current.filter(function (f) {
                 return !(f.field === 'OrderStatus' && f._completedFilter);
             });
 
             if (!sw.check()) {
-                // Toggle is OFF — hide Complete and Cancelled
                 current.push({ field: 'OrderStatus', operator: 'neq', value: 'Complete',  _completedFilter: true });
                 current.push({ field: 'OrderStatus', operator: 'neq', value: 'Cancelled', _completedFilter: true });
             }
@@ -173,7 +166,6 @@
             var sw = $('#wCompleted').data('kendoSwitch');
             if (sw) {
                 if (!sw.check()) sw.check(true);
-                // Wire toggle to client-side filter
                 sw.unbind('change');
                 sw.bind('change', applyCompletedFilter);
             }
@@ -231,33 +223,26 @@
             'font-family:system-ui,sans-serif','font-weight:600','cursor:pointer'
         ].join(';');
         clearBtn.addEventListener('click', function () {
-            // Clear all top text inputs
             ['OrderRepSearch','OrderNumberSearch','ProjectSearch',
              'CompanySearch','ContactSearch'].forEach(function (id) {
                 var el = document.getElementById(id);
                 if (el) el.value = '';
             });
 
-            // Reset office multiselect
             try { $('#officeSelect').data('kendoMultiSelect').value([]); } catch (e) {}
 
-            // Reset status dropdown
             var ss = document.getElementById('ofg-status-search');
             if (ss) ss.value = '';
 
-            // Clear all grid filters at once
             var grid = $('#grid').data('kendoGrid');
             if (grid) {
                 grid.dataSource.filter([]);
-                // Reset sort back to default (CreatedAt descending)
                 grid.dataSource.sort({ field: 'CreatedAt', dir: 'desc' });
             }
 
-            // Reset WIP button colour
             var wb = document.getElementById('ofg-wip-btn');
             if (wb) wb.style.background = '#8e44ad';
 
-            // Always reset Show Complete & Cancelled to ON and re-apply
             try {
                 var sw = $('#wCompleted').data('kendoSwitch');
                 if (sw) {
@@ -277,7 +262,6 @@
             'font-family:system-ui,sans-serif','font-weight:600','cursor:pointer'
         ].join(';');
         wipBtn.addEventListener('click', function () {
-            // Refresh orders first so the list is always current before filtering
             wipBtn.disabled = true;
             wipBtn.textContent = '⏳ Refreshing...';
             showStatus('🔄 Refreshing orders...', '#555');
@@ -297,21 +281,18 @@
                     hideStatus(2500);
                 }
 
-                // Apply WIP filters after refresh (or on cached data if refresh failed)
                 setTimeout(function () {
                     var grid = $('#grid').data('kendoGrid');
                     if (!grid) return;
                     var ds = grid.dataSource;
                     var current = ds.filter() ? ds.filter().filters.slice() : [];
 
-                    // Remove existing BristowStatus filter
                     current = current.filter(function (f) { return f.field !== 'BristowStatus'; });
 
                     current.push({ field: 'BristowStatus', operator: 'eq', value: 'Work in Progress' });
                     current.push({ field: 'PrefixedOrderNumber', operator: 'contains', value: 'YEG' });
                     ds.filter(current);
 
-                    // Turn off Show Complete & Cancelled
                     try {
                         var sw = $('#wCompleted').data('kendoSwitch');
                         if (sw && sw.check()) {
@@ -320,7 +301,6 @@
                         }
                     } catch (e) {}
 
-                    // Sort by OrderRep alphabetically
                     try {
                         if (grid) grid.dataSource.sort({ field: 'OrderRep', dir: 'asc' });
                     } catch (e) {}
@@ -340,26 +320,18 @@
             var grid = $('#grid').data('kendoGrid');
             if (!grid) return;
 
-            // Get all filtered+sorted records from the datasource (not just current page)
-            var view = grid.dataSource.view();
-            // If paged, get all records across all pages
             var allData = grid.dataSource.data();
-            // Apply current filters/sort to get the right subset
             var ds = grid.dataSource;
             var filtered = ds.filter() ? kendo.data.Query.process(allData, { filter: ds.filter(), sort: ds.sort() }).data : allData.toJSON ? allData.toJSON() : allData;
 
-            // Build print window
             var cols = [
+                { field: 'OrderRep',            title: 'Order Rep' },
                 { field: 'PrefixedOrderNumber', title: 'Order' },
                 { field: 'Company',             title: 'Customer' },
                 { field: 'Component',           title: 'Component' },
                 { field: 'SerialNumber',        title: 'Serial No.' },
-                { field: 'OrderTotal',          title: 'Order Total' },
-                { field: 'OrderStatus',         title: 'Status' },
-                { field: 'OrderRep',            title: 'Order Rep' },
-                { field: 'BristowStatus',       title: 'Bristow Status' },
-                { field: 'Priority',            title: 'Priority' },
-                { field: 'CreatedAt',           title: 'Created At' }
+                { field: 'CreatedAt',           title: 'Created At' },
+                { field: '_qa',                 title: 'QA' }
             ];
 
             var html = '<!DOCTYPE html><html><head><title>Customer Orders</title>';
@@ -374,20 +346,38 @@
             html += '</style></head><body>';
             html += '<h2>Customer Orders — ' + filtered.length + ' records — ' + new Date().toLocaleDateString() + '</h2>';
             html += '<table><thead><tr>';
-            cols.forEach(function (c) { html += '<th>' + c.title + '</th>'; });
-            html += '</tr></thead><tbody>';
+            cols.forEach(function (c) {
+                var align = c.field === '_qa' ? 'text-align:center;' : '';
+                html += '<th style="' + align + '">' + c.title + '</th>';
+            });
+            html += '</tr></thead>';
 
-            filtered.forEach(function (row) {
-                html += '<tr>';
+            var lastRep = null;
+            var rows = filtered.slice();
+            html += '<tbody>';
+            rows.forEach(function (row, i) {
+                var repChanged = lastRep !== null && row['OrderRep'] !== lastRep;
+                lastRep = row['OrderRep'];
+
+                if (repChanged) {
+                    html += '<tr><td colspan="' + cols.length + '" style="padding:4px 0;border:none;background:transparent;"></td></tr>';
+                    html += '<tr><td colspan="' + cols.length + '" style="padding:0;border:none;border-top:2px solid #378ADD;"></td></tr>';
+                    html += '<tr><td colspan="' + cols.length + '" style="padding:4px 0;border:none;background:transparent;"></td></tr>';
+                }
+
+                var bgColor = (i % 2 === 0) ? '' : 'background:#f5f5f5;';
+                html += '<tr style="' + bgColor + '">';
                 cols.forEach(function (c) {
-                    var val = row[c.field];
-                    if (c.field === 'OrderTotal') val = '$' + (parseFloat(val) || 0).toFixed(2);
-                    else if (c.field === 'CreatedAt' && val) val = new Date(val).toLocaleDateString();
-                    html += '<td>' + (val || '') + '</td>';
+                    if (c.field === '_qa') {
+                        html += '<td style="text-align:center;font-weight:600;letter-spacing:2px;white-space:nowrap;">WIP &nbsp; SHIP &nbsp; HOLD &nbsp; EST</td>';
+                    } else {
+                        var val = row[c.field];
+                        if (c.field === 'CreatedAt' && val) val = new Date(val).toLocaleDateString();
+                        html += '<td style="padding:4px 8px;border-bottom:1px solid #ddd;">' + (val || '') + '</td>';
+                    }
                 });
                 html += '</tr>';
             });
-
             html += '</tbody></table></body></html>';
 
             var win = window.open('', '_blank', 'width=1000,height=700');
@@ -408,7 +398,7 @@
         row.appendChild(hint);
         well.appendChild(row);
 
-        // --- Order Status search box (same style as Bristow's other filters) ---
+        // --- Order Status search box ---
         var statusGroup = document.createElement('div');
         statusGroup.className = 'search-group';
 
@@ -435,7 +425,6 @@
             var ds = grid.dataSource;
             var current = ds.filter() ? ds.filter().filters.slice() : [];
 
-            // Remove existing OrderStatus filter
             current = current.filter(function (f) { return f.field !== 'OrderStatus'; });
 
             if (statusSelect.value) {
@@ -446,8 +435,7 @@
 
         statusGroup.appendChild(statusLabel);
         statusGroup.appendChild(statusSelect);
-        // Insert directly after Contact group with a line break before it
-        // so it stacks underneath Contact in the same left column position
+
         var contactGroup = document.getElementById('ContactSearch');
         contactGroup = contactGroup ? contactGroup.closest('.search-group') : null;
         if (contactGroup) {
@@ -487,7 +475,6 @@
                             showStatus('✔ ' + records.length + ' orders loaded & cached', '#27ae60');
                             hideStatus(2500);
 
-                            // Start recurring auto-refresh now that first load is done
                             setInterval(function () {
                                 fetchAllOrders(function (err, records) {
                                     if (err || !records) return;
