@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Auto Add Labor + Tech Time Panel
 // @namespace    http://tampermonkey.net/
-// @version      7.3
+// @version      7.6
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @description  Checks for and adds the labor line and processes it, added panel that will add automatically add time tech hourly line.
@@ -419,14 +419,20 @@
     }
 
     function getTotalHours() {
-        var iDoc = getIframeDoc();
-        if (!iDoc) return null;
-        var total = 0, found = false;
-        iDoc.querySelectorAll('input[id^="OrderLineQuantity_"]').forEach(function (el) {
-            var v = parseFloat(el.value);
-            if (!isNaN(v)) { total += v; found = true; }
-        });
-        return found ? Math.round(total * 100) / 100 : null;
+        // Try both iframes — Time Expanded may be collapsed, hidden iframe may not be ready
+        var docs = [];
+        var te = document.querySelector('#collapseTimeExpanded iframe');
+        if (te) { try { if (te.contentDocument) docs.push(te.contentDocument); } catch (e) {} }
+        if (_iframe) { try { if (_iframe.contentDocument) docs.push(_iframe.contentDocument); } catch (e) {} }
+        for (var d = 0; d < docs.length; d++) {
+            var iDoc = docs[d];
+            var inputs = iDoc.querySelectorAll('input[id^="OrderLineQuantity_"]');
+            if (!inputs.length) continue;
+            var total = 0, found = false;
+            inputs.forEach(function (el) { var v = parseFloat(el.value); if (!isNaN(v)) { total += v; found = true; } });
+            if (found) return Math.round(total * 100) / 100;
+        }
+        return null;
     }
 
     function updateTotalDisplay() {
@@ -827,6 +833,19 @@
                 // Shrink panel width to fit just the tech card + total box
                 var root = document.getElementById('timePanelRoot');
                 if (root) root.style.width = 'auto';
+                // Retry updating total hours — iframe may not be fully ready yet
+                var totalRetries = 0;
+                function tryUpdateTotal() {
+                    var total = getTotalHours();
+                    if (total !== null) {
+                        var el = document.getElementById('tp-total');
+                        if (el) el.textContent = total + 'h';
+                    } else if (totalRetries < 10) {
+                        totalRetries++;
+                        setTimeout(tryUpdateTotal, 1000);
+                    }
+                }
+                tryUpdateTotal();
             }
         });
 
@@ -956,15 +975,23 @@
         });
     }
 
-    function initPanel() {
-        waitForJobUrl().then(function (jobUrl) {
-            if (!jobUrl) { warn('No job URL found — panel skipped.'); return; }
+   function initPanel() {
+    waitForJobUrl().then(function (jobUrl) {
+        if (!jobUrl) { warn('No job URL found — panel skipped.'); return; }
+        poll('lq-table-info', function () {
+            return document.querySelector('table.lq-table-info th') ? true : null;
+        }, function () {
             var readOnly = isOrderComplete();
             var teIframe = document.querySelector('#collapseTimeExpanded iframe');
             if (!teIframe) createHiddenIframe(jobUrl);
-            waitForIframeReady(function () { createPanel(readOnly); });
-        });
-    }
+            if (readOnly) {
+                createPanel(readOnly);
+            } else {
+                waitForIframeReady(function () { createPanel(readOnly); });
+            }
+        }, 15000, 300);
+    });
+}
 
     initPanel();
 
