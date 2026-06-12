@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Auto Add Labor + Tech Time Panel
 // @namespace    http://tampermonkey.net/
-// @version      7.1
+// @version      7.3
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @description  Checks for and adds the labor line and processes it, added panel that will add automatically add time tech hourly line.
@@ -51,6 +51,21 @@
 
     function getOrderId() {
         return new URLSearchParams(window.location.search).get('id');
+    }
+
+    // =========================================================================
+    // ORDER COMPLETION CHECK
+    // =========================================================================
+
+    function isOrderComplete() {
+        var rows = document.querySelectorAll('table.lq-table-info th');
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].textContent.trim() === 'Order Status') {
+                var td = rows[i].nextElementSibling;
+                if (td && td.textContent.trim() === 'Complete') return true;
+            }
+        }
+        return false;
     }
 
     // =========================================================================
@@ -203,6 +218,10 @@
         return document.getElementById('order-line-area');
     }, function () {
         setTimeout(function () {
+            if (isOrderComplete()) {
+                log('Order is complete — Part 1 skipped.');
+                return;
+            }
             addServiceLine();
             observeForNewLines();
         }, 500);
@@ -508,22 +527,12 @@
         if (btnM) { btnM.disabled = false; btnM.textContent = 'Log Hours'; }
     }
 
-    // -------------------------------------------------------------------------
-    // FIX: applyAndSave no longer calls setLineSourceQuantity (caused
-    // validateSourceQuantity crash). It also no longer dispatches redundant
-    // change/input events that re-triggered the validator.
-    // doAddSubLine now always targets the last sub-line input re-queried fresh
-    // from the DOM, avoiding stale references on second+ writes.
-    // -------------------------------------------------------------------------
-
     function doAddSubLine(lineId, hours, techName, isNewLine) {
         setFeedback('Logging hours...', true);
 
         function applyAndSave(subInput) {
             subInput.value = hours;
             subInput.focus();
-            // Dispatch only 'change' — the app's onchange handler (setLineSourceQuantity)
-            // will fire naturally via the attribute, no manual JS call needed.
             subInput.dispatchEvent(new Event('change', { bubbles: true }));
             subInput.blur();
             setTimeout(function () {
@@ -538,7 +547,6 @@
         }
 
         if (isNewLine) {
-            // Re-query fresh from DOM — never use cached references
             var existing = getSubLineQuantities(lineId);
             if (existing.length > 0) { applyAndSave(existing[existing.length - 1].input); return; }
         }
@@ -553,8 +561,6 @@
             var subs = getSubLineQuantities(lineId);
             return subs.length > before ? subs : null;
         }, function (subs) {
-            // Always use the last sub-line, re-queried fresh — never rely on
-            // cached value comparisons which break on second+ calls
             var lastInput = subs[subs.length - 1].input;
             applyAndSave(lastInput);
         }, 5000, 250);
@@ -639,13 +645,14 @@
         } else {
             if (avatarDiv) { avatarDiv.style.background = '#FAEEDA'; avatarDiv.style.color = '#854F0B'; }
             if (subDiv)    subDiv.textContent = 'Assisting Tech';
-            if (techCard)  techCard.style.background = '#FEF3E2'; /* amber tint */
+            if (techCard)  techCard.style.background = '#FEF3E2';
         }
     }
 
-    function createPanel() {
+    function createPanel(readOnly) {
         if (_panelReady || document.getElementById('timePanelRoot')) return;
         _panelReady = true;
+        readOnly = !!readOnly;
 
         var orderRep = getOrderRepName();
         var initials = getInitials(orderRep);
@@ -654,7 +661,6 @@
         style.textContent = [
             '#timePanelRoot{position:fixed;bottom:24px;right:24px;z-index:99999;width:380px;background:#fff;border:1px solid #ddd;border-radius:10px;padding:11px 14px;font-family:system-ui,sans-serif;font-size:12px;color:#222;cursor:default;will-change:transform}',
             '#timePanelRoot *{box-sizing:border-box}',
-            /* Header */
             '#tp-header{display:flex;align-items:center;gap:6px;margin-bottom:8px;padding-right:50px}',
             '#tp-title{font-weight:700;font-size:13px;white-space:nowrap;margin-right:4px}',
             '#tp-feedback{font-size:11px;color:#3B6D11;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
@@ -664,23 +670,18 @@
             '#tp-header-btns{position:absolute;top:7px;right:9px;display:flex;gap:2px;z-index:2}',
             '#tp-mini,#tp-close{background:none;border:none;font-size:17px;cursor:pointer;color:#aaa;line-height:1;padding:0 2px}',
             '#tp-mini:hover,#tp-close:hover{color:#333}',
-            /* Tech card */
-            '#tp-tech{display:flex;align-items:center;gap:6px;background:#f4f6f8;border-radius:7px;padding:7px 10px;margin-bottom:9px;transition:background .2s}',  /* tighter gap */
+            '#tp-tech{display:flex;align-items:center;gap:6px;background:#f4f6f8;border-radius:7px;padding:7px 10px;margin-bottom:9px;transition:background .2s}',
             '#tp-avatar{width:30px;height:30px;border-radius:50%;background:#B5D4F4;color:#0C447C;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;flex-shrink:0;transition:background .2s,color .2s}',
-            '#tp-name-block{flex:1;min-width:0;overflow:hidden}',  /* flex:1 pushes mini-controls + total to the right */
+            '#tp-name-block{flex:1;min-width:0;overflow:hidden}',
             '#tp-name{font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
             '#tp-sub{font-size:10px;color:#888}',
             '#tp-alt-badge{display:none}',
-            /* Mini target — hours+button land here when mini */
             '#tp-mini-target{display:none;flex-direction:column;gap:3px;align-items:stretch;flex-shrink:0}',
-            /* Total Hours box */
             '#tp-total-box{background:#EAF3DE;border-radius:6px;padding:5px 9px;text-align:center;flex-shrink:0}',
             '#tp-total{font-weight:700;color:#3B6D11;font-size:14px;line-height:1.2}',
             '#tp-total-lbl{font-size:9px;color:#3B6D11;text-transform:uppercase;letter-spacing:.04em}',
-            /* Full-mode label */
             '#tp-label-row{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;margin-top:8px}',
             '#tp-select-lbl{font-size:12px;color:#666}',
-            /* Full-mode input row */
             '#tp-row{display:flex;gap:5px;align-items:center}',
             '#tp-tech-select{flex:1;padding:5px 6px;border:1px solid #ccc;border-radius:5px;font-size:11px;background:#fff;min-width:0}',
             '#tp-tech-select:focus{outline:none;border-color:#378ADD}',
@@ -689,15 +690,13 @@
             '#tp-set,#tp-set-m{flex-shrink:0;padding:5px 10px;border:none;border-radius:5px;background:#378ADD;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap}',
             '#tp-set:hover,#tp-set-m:hover{background:#2a6cb5}',
             '#tp-set:disabled,#tp-set-m:disabled{opacity:.5;cursor:not-allowed}',
-            /* Mini mode — hide label+row, show mini-target inputs */
             '#timePanelRoot.tp-mini{width:auto;min-width:260px}',
-            '#tp-mini-controls{display:none;flex-direction:row;gap:4px;align-items:center;flex-shrink:0;margin-left:auto}',  /* horizontal row */
-            '#tp-hours-m{width:48px;padding:3px 4px;border:1px solid #ccc;border-radius:5px;font-size:12px;text-align:center}',  /* tighter */
+            '#tp-mini-controls{display:none;flex-direction:row;gap:4px;align-items:center;flex-shrink:0;margin-left:auto}',
+            '#tp-hours-m{width:48px;padding:3px 4px;border:1px solid #ccc;border-radius:5px;font-size:12px;text-align:center}',
             '#tp-hours-m:focus{outline:none;border-color:#378ADD}',
-            '#tp-set-m{padding:4px 8px;border:none;border-radius:5px;background:#378ADD;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap}',  /* horizontal */
+            '#tp-set-m{padding:4px 8px;border:none;border-radius:5px;background:#378ADD;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap}',
             '#tp-set-m:hover{background:#2a6cb5}',
             '#tp-set-m:disabled{opacity:.5;cursor:not-allowed}',
-            /* Mini mode */
             '#timePanelRoot.tp-mini{width:auto;min-width:280px}',
             '#timePanelRoot.tp-mini #tp-select-lbl,#timePanelRoot.tp-mini #tp-row{display:none!important}',
             '#timePanelRoot.tp-mini #tp-tech{margin-bottom:0}',
@@ -710,11 +709,11 @@
         panel.id = 'timePanelRoot';
         panel.innerHTML = [
             '<div id="tp-header">',
-            '  <span id="tp-title">⏱ Log Tech Time</span>',
+            '  <span id="tp-title">' + (readOnly ? '⏱ Tech Time — View Only' : '⏱ Log Tech Time') + '</span>',
             '  <span id="tp-feedback-hdr" style="display:none;font-size:11px;color:#3B6D11;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 6px"></span>',
             '  <div id="tp-header-btns">',
             '    <button id="tp-mini" title="Mini mode">▬</button>',
-            '    <button id="tp-close" title="Collapse">&#8212;</button>',  /* — collapse to pill */
+            '    <button id="tp-close" title="Collapse">&#8212;</button>',
             '  </div>',
             '</div>',
             '<div id="tp-tech">',
@@ -747,7 +746,7 @@
             '</div>'
         ].join('');
         document.body.appendChild(panel);
-        // Floating restore pill — shown when panel is collapsed
+
         var pill = document.createElement('button');
         pill.id = 'tp-pill';
         pill.title = 'Show Tech Time Panel';
@@ -761,7 +760,6 @@
         ].join(';');
         document.body.appendChild(pill);
 
-        // Apply saved position for the given mode
         function restorePosition(isMini) {
             try {
                 var key = isMini ? 'bristow_tp_pos_mini' : 'bristow_tp_pos_full';
@@ -772,7 +770,6 @@
                     panel.style.right  = pos.right  || '';
                     panel.style.bottom = pos.bottom || '';
                 } else {
-                    // No saved position for this mode — reset to default corner
                     panel.style.left   = '';
                     panel.style.top    = '';
                     panel.style.right  = '24px';
@@ -781,15 +778,12 @@
             } catch (e) {}
         }
 
-        // Save collapsed state to localStorage
         function setCollapsed(collapsed) {
             try { localStorage.setItem('bristow_tp_collapsed', collapsed ? '1' : '0'); } catch(e) {}
         }
 
-        // Restore saved position for full mode initially
         restorePosition(false);
 
-        // Restore saved mode (mini/full) and collapsed state
         try {
             var wasCollapsed = localStorage.getItem('bristow_tp_collapsed') === '1';
             if (wasCollapsed) {
@@ -799,7 +793,6 @@
                 setTimeout(function () {
                     var miniBtn = document.getElementById('tp-mini');
                     if (miniBtn) miniBtn.click();
-                    // click() triggers the toggle which calls restorePosition(true)
                 }, 100);
             }
         } catch (e) {}
@@ -822,6 +815,19 @@
             });
             select.value = orderRep;
             updateTotalDisplay();
+
+            // Read-only mode: hide all input controls, leaving only the Total Hours box
+            if (readOnly) {
+                var lr  = document.getElementById('tp-label-row');
+                var fr  = document.getElementById('tp-row');
+                var mc  = document.getElementById('tp-mini-controls');
+                if (lr) lr.style.display = 'none';
+                if (fr) fr.style.display = 'none';
+                if (mc) mc.style.display = 'none';
+                // Shrink panel width to fit just the tech card + total box
+                var root = document.getElementById('timePanelRoot');
+                if (root) root.style.width = 'auto';
+            }
         });
 
         var isDragging = false, dragOffX, dragOffY;
@@ -844,7 +850,6 @@
         panel.addEventListener('pointerup', function () {
             isDragging = false;
             panel.style.cursor = '';
-            // Save position to mode-specific localStorage key
             try {
                 var posKey = panel.classList.contains('tp-mini') ? 'bristow_tp_pos_mini' : 'bristow_tp_pos_full';
                 localStorage.setItem(posKey, JSON.stringify({
@@ -855,8 +860,7 @@
                 }));
             } catch (e) {}
         });
-        // select() on type=number: switch to text, select, switch back — all synchronous
-        // No setTimeout/value-capture to avoid resetting what the user typed
+
         function selectOnFocus(el) {
             el.addEventListener('focus', function () {
                 var inp = this;
@@ -870,26 +874,24 @@
         selectOnFocus(hoursInput);
 
         hoursInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        document.getElementById('tp-set').click();
-    }
-});
-        // Collapse button — hides panel, shows pill
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                document.getElementById('tp-set').click();
+            }
+        });
+
         document.getElementById('tp-close').addEventListener('click', function () {
             panel.style.display = 'none';
             pill.style.display  = 'block';
             setCollapsed(true);
         });
 
-        // Pill — restores panel
         pill.addEventListener('click', function () {
             pill.style.display  = 'none';
             panel.style.display = 'block';
             setCollapsed(false);
         });
 
-        // Wire up mini hours input
         var hoursMini = document.getElementById('tp-hours-m');
         selectOnFocus(hoursMini);
         hoursMini.addEventListener('keydown', function (e) {
@@ -901,10 +903,8 @@
             }
         });
 
-        // Mini Log button uses mousedown + preventDefault so blur never fires
-        // before we read the value — physical clicks and Enter key both work reliably
         document.getElementById('tp-set-m').addEventListener('mousedown', function (e) {
-            e.preventDefault(); // keep focus on input, value stays intact
+            e.preventDefault();
             var h = parseFloat(document.getElementById('tp-hours-m').value);
             document.getElementById('tp-hours').value = h;
             handleLogHours(h);
@@ -914,11 +914,9 @@
             var isMini = panel.classList.toggle('tp-mini');
             this.title       = isMini ? 'Expand' : 'Mini mode';
             this.textContent = isMini ? '▣' : '▬';
-            // Save mode and restore position for new mode
             try { localStorage.setItem('bristow_tp_mode', isMini ? 'mini' : 'full'); } catch (e) {}
             restorePosition(isMini);
 
-            // Use inline styles — CSS-only approach kept failing
             var mc  = document.getElementById('tp-mini-controls');
             var lr  = document.getElementById('tp-label-row');
             var fr  = document.getElementById('tp-row');
@@ -935,7 +933,6 @@
             updateBadge(this.value, this.value === orderRep);
         });
 
-        // Shared handler called by both full and mini log buttons
         function handleLogHours(hoursVal) {
             if (isNaN(hoursVal) || hoursVal <= 0)
                 return setFeedback('Enter a valid number of hours.', false);
@@ -962,9 +959,10 @@
     function initPanel() {
         waitForJobUrl().then(function (jobUrl) {
             if (!jobUrl) { warn('No job URL found — panel skipped.'); return; }
+            var readOnly = isOrderComplete();
             var teIframe = document.querySelector('#collapseTimeExpanded iframe');
             if (!teIframe) createHiddenIframe(jobUrl);
-            waitForIframeReady(createPanel);
+            waitForIframeReady(function () { createPanel(readOnly); });
         });
     }
 
