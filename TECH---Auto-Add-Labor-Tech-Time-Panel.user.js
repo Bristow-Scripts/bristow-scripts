@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Auto Add Labor + Tech Time Panel
 // @namespace    http://tampermonkey.net/
-// @version      7.6
+// @version      7.7
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @description  Checks for and adds the labor line and processes it, added panel that will add automatically add time tech hourly line.
@@ -192,7 +192,26 @@
     }
 
     function addServiceLine() {
-        if (tableHasLines()) { setQuantitiesToOne(); return; }
+        if (tableHasLines()) {
+            setQuantitiesToOne();
+            var lineId = getServiceLineId();
+            if (lineId) {
+                var sourceArea = document.getElementById('OrderLineSourceArea_' + lineId);
+                if (sourceArea) {
+                    var sourceType = sourceArea.querySelector('select[id^="OrderLineSourceType_"]');
+                    var locked = sourceArea.querySelector('input[id^="OrderLineSourceLocked_"]');
+                    var isProcessed = locked && locked.value;
+                    if (!isProcessed) {
+                        log('Labor line unprocessed — configuring and processing.');
+                        if (sourceType && sourceType.value !== '6') {
+                            setSourceTypeToJob();
+                        }
+                        phaseSave();
+                    }
+                }
+            }
+            return;
+        }
         var orderId = getOrderId();
         if (!orderId) { warn('No order ID.'); return; }
         fetch('/Orders/Orders/Edit?handler=NewServiceLine'
@@ -383,7 +402,8 @@
                 var techs = [];
                 for (var i = 0; i < data.length; i++) {
                     var desc = (data[i].Description || '').trim();
-                    if (isValidTechEntry(desc)) {
+                   var category = (data[i].Category || '').trim().toUpperCase();
+                    if (isValidTechEntry(desc) && category === 'OTHER') {
                         techs.push({ name: desc.split(' - ')[0].trim(), serviceId: data[i].Id });
                     }
                 }
@@ -975,23 +995,15 @@
         });
     }
 
-   function initPanel() {
-    waitForJobUrl().then(function (jobUrl) {
-        if (!jobUrl) { warn('No job URL found — panel skipped.'); return; }
-        poll('lq-table-info', function () {
-            return document.querySelector('table.lq-table-info th') ? true : null;
-        }, function () {
+    function initPanel() {
+        waitForJobUrl().then(function (jobUrl) {
+            if (!jobUrl) { warn('No job URL found — panel skipped.'); return; }
             var readOnly = isOrderComplete();
             var teIframe = document.querySelector('#collapseTimeExpanded iframe');
             if (!teIframe) createHiddenIframe(jobUrl);
-            if (readOnly) {
-                createPanel(readOnly);
-            } else {
-                waitForIframeReady(function () { createPanel(readOnly); });
-            }
-        }, 15000, 300);
-    });
-}
+            waitForIframeReady(function () { createPanel(readOnly); });
+        });
+    }
 
     initPanel();
 
