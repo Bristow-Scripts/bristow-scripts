@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Time Expanded Section Trimmed
 // @namespace    http://tampermonkey.net/
-// @version      2.3
+// @version      2.8
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Time-Expanded-Section-Trimmed.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Time-Expanded-Section-Trimmed.user.js
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -51,9 +51,19 @@
             var doc = iframe.contentDocument || iframe.contentWindow.document;
             if (!doc) return;
 
+            // === SAFETY CHECK - Wait until grid is ready ===
+            if (!doc.querySelector('#serviceGrid')) {
+                console.log('[Trim] Grid not ready yet - skipping');
+                return;
+            }
+
+            console.log('[Trim] Grid ready - performing cleanup');
+
             // --- REMOVE NAVBAR ---
             var navbar = doc.querySelector("nav.navbar");
             if (navbar) navbar.remove();
+
+            // ... rest of your original code stays exactly the same ...
 
             // --- REMOVE JUMP BUTTON GROUP ---
             var jumpLinks = doc.querySelectorAll(
@@ -115,6 +125,21 @@
 
             // --- REMOVE SAVE BUTTON ---
             doc.querySelectorAll('input[type="submit"][value="Save"]').forEach(btn => btn.remove());
+
+            // --- REMOVE READY BUTTON ---
+            var readyBtn = doc.getElementById("readyButton");
+            if (readyBtn) readyBtn.remove();
+
+            // --- REMOVE COMPLETE BUTTON ---
+            var completeBtn = doc.getElementById("completeButton");
+            if (completeBtn) completeBtn.remove();
+
+
+            // --- REMOVE "PERFORM SERVICES" BUTTON ---
+            doc.querySelectorAll('a[href*="/Orders/Jobs/PerformServices"]').forEach(function (el) {
+                el.remove();
+            });
+
 
             // --- REMOVE DETAILED PDF BUTTON ---
             doc.querySelectorAll('a[href*="ReportGenerator/PrintPDF"]').forEach(btn => btn.remove());
