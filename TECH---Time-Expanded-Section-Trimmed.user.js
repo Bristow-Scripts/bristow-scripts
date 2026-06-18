@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Time Expanded Section Trimmed
 // @namespace    http://tampermonkey.net/
-// @version      2.8
+// @version      2.9
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Time-Expanded-Section-Trimmed.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Time-Expanded-Section-Trimmed.user.js
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -51,7 +51,7 @@
             var doc = iframe.contentDocument || iframe.contentWindow.document;
             if (!doc) return;
 
-            // === SAFETY CHECK - Wait until grid is ready ===
+            // === SAFETY CHECK ===
             if (!doc.querySelector('#serviceGrid')) {
                 console.log('[Trim] Grid not ready yet - skipping');
                 return;
@@ -59,11 +59,15 @@
 
             console.log('[Trim] Grid ready - performing cleanup');
 
+            // --- REMOVE TOP NAV BUTTONS ---
+            doc.querySelectorAll('a.btn.btn-default[href="#HeaderTarget"]').forEach(el => el.remove());
+            doc.querySelectorAll('a.btn.btn-default[href="#AddPartTarget"]').forEach(el => el.remove());
+            doc.querySelectorAll('a.btn.btn-default[href="#CommentsTarget"]').forEach(el => el.remove());
+
+
             // --- REMOVE NAVBAR ---
             var navbar = doc.querySelector("nav.navbar");
             if (navbar) navbar.remove();
-
-            // ... rest of your original code stays exactly the same ...
 
             // --- REMOVE JUMP BUTTON GROUP ---
             var jumpLinks = doc.querySelectorAll(
@@ -134,12 +138,10 @@
             var completeBtn = doc.getElementById("completeButton");
             if (completeBtn) completeBtn.remove();
 
-
             // --- REMOVE "PERFORM SERVICES" BUTTON ---
             doc.querySelectorAll('a[href*="/Orders/Jobs/PerformServices"]').forEach(function (el) {
                 el.remove();
             });
-
 
             // --- REMOVE DETAILED PDF BUTTON ---
             doc.querySelectorAll('a[href*="ReportGenerator/PrintPDF"]').forEach(btn => btn.remove());
@@ -161,6 +163,39 @@
             if (orderSubtotal) {
                 var container = orderSubtotal.closest(".container-fluid");
                 if (container) container.remove();
+            }
+
+            // ======================================================
+            // FIX SAVE / REFRESH BUTTON LAYOUT (FINAL FIX)
+            // ======================================================
+            var refreshBtn = doc.querySelector('button[onclick="refreshLines()"]');
+            var saveBtn = doc.querySelector('button[onclick="saveAll()"]');
+
+            if (refreshBtn && saveBtn) {
+
+                var container = refreshBtn.parentElement;
+
+                while (container && !container.contains(saveBtn)) {
+                    container = container.parentElement;
+                }
+
+                if (container) {
+
+                    // IMPORTANT: restore full width so alignment works correctly
+                    container.style.width = "100%";
+
+                    container.style.display = "flex";
+                    container.style.justifyContent = "flex-end";
+                    container.style.alignItems = "center";
+                    container.style.gap = "5px";
+
+                    container.style.paddingRight = "0px";
+                    container.style.marginRight = "0px";
+
+                    // enforce correct order
+                    saveBtn.style.order = "1";
+                    refreshBtn.style.order = "2";
+                }
             }
 
         } catch (e) {
