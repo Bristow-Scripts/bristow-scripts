@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Auto Add Labor + Tech Time Panel
 // @namespace    http://tampermonkey.net/
-// @version      7.7
+// @version      8.1
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @description  Checks for and adds the labor line and processes it, added panel that will add automatically add time tech hourly line.
@@ -255,11 +255,11 @@
     var _panelReady = false;
 
     function getIframe() {
+        // Prefer Time Expanded iframe first (visible one)
         var te = document.querySelector('#collapseTimeExpanded iframe');
         if (te) {
             try {
-                if (te.contentDocument && te.contentDocument.querySelector('.k-input-value-text'))
-                    return te;
+                return te;
             } catch (e) {}
         }
         return _iframe;
@@ -313,14 +313,8 @@
     }
 
     function createHiddenIframe(jobUrl) {
-        if (_iframe) return;
-        var iframe = document.createElement('iframe');
-        iframe.src = jobUrl;
-        iframe.id  = 'tpHiddenJobFrame';
-        iframe.style.cssText = 'display:none';
-        document.body.appendChild(iframe);
-        _iframe = iframe;
-        log('Hidden iframe created.');
+        log('Hidden iframe creation DISABLED to avoid conflict with Time Expanded');
+        // Do nothing - we only use the visible Time Expanded iframe
     }
 
     function waitForIframeReady(callback) {
@@ -334,11 +328,12 @@
         try {
             var iWin = getIframeWin();
             if (!iWin || !iWin.jQuery) return;
+
             var grid = iWin.jQuery('#serviceGrid').data('kendoGrid');
             if (grid) {
+                // Only clear data, don't fully destroy when using shared iframe
                 grid.dataSource.data([]);
-                grid.destroy();
-                log('Kendo grid destroyed — memory released.');
+                log('Kendo grid data cleared (safe mode)');
             }
         } catch (e) {}
     }
@@ -444,13 +439,36 @@
         var te = document.querySelector('#collapseTimeExpanded iframe');
         if (te) { try { if (te.contentDocument) docs.push(te.contentDocument); } catch (e) {} }
         if (_iframe) { try { if (_iframe.contentDocument) docs.push(_iframe.contentDocument); } catch (e) {} }
+
         for (var d = 0; d < docs.length; d++) {
             var iDoc = docs[d];
             var inputs = iDoc.querySelectorAll('input[id^="OrderLineQuantity_"]');
             if (!inputs.length) continue;
-            var total = 0, found = false;
-            inputs.forEach(function (el) { var v = parseFloat(el.value); if (!isNaN(v)) { total += v; found = true; } });
-            if (found) return Math.round(total * 100) / 100;
+
+            var total = 0;
+            var found = false;
+
+            inputs.forEach(function (el) {
+                var row = el.closest('tr');
+                if (!row) return;
+
+                var rowHtml = row.innerHTML || '';
+
+                // === EXCLUDE THESE LINES FROM TOTAL ===
+                if (rowHtml.includes('S-100238') || rowHtml.includes('S-100215')) {
+                    return; // Skip this line
+                }
+
+                var v = parseFloat(el.value);
+                if (!isNaN(v)) {
+                    total += v;
+                    found = true;
+                }
+            });
+
+            if (found) {
+                return Math.round(total * 100) / 100;
+            }
         }
         return null;
     }
@@ -997,11 +1015,25 @@
 
     function initPanel() {
         waitForJobUrl().then(function (jobUrl) {
-            if (!jobUrl) { warn('No job URL found — panel skipped.'); return; }
+            if (!jobUrl) {
+                warn('No job URL found — panel skipped.');
+                return;
+            }
+
             var readOnly = isOrderComplete();
-            var teIframe = document.querySelector('#collapseTimeExpanded iframe');
-            if (!teIframe) createHiddenIframe(jobUrl);
-            waitForIframeReady(function () { createPanel(readOnly); });
+
+            log('Tech Panel waiting for Time Expanded iframe...');
+
+            // Wait for the visible Time Expanded iframe
+            poll('Time Expanded iframe', function () {
+                return document.querySelector('#collapseTimeExpanded iframe');
+            }, function (teIframe) {
+                log('✅ Connected to Time Expanded iframe');
+                _iframe = teIframe;
+                waitForIframeReady(function () {
+                    createPanel(readOnly);
+                });
+            }, 25000, 500);
         });
     }
 
