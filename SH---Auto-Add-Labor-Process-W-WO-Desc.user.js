@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         SH - Auto Add Labor & Process W/ WO Desc.
 // @namespace    http://tampermonkey.net/
-// @version      2.4
+// @version      2.6
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Auto-Add-Labor-Process-W-WO-Desc.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Auto-Add-Labor-Process-W-WO-Desc.user.js
-// @description  Automatically fills work order desc, adds a Service line, sets to Job, quantity 1, saves, checks, and processes
+// @description  Automatically fills work order desc + robust labor line handling (prevents duplicates on unprocessed lines)
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
 // ==/UserScript==
@@ -33,15 +33,13 @@
     // UTILITIES
     // =========================================================================
 
-    function log(msg)  { console.log('[AutoLine] ' + msg); }
-    function warn(msg) { console.warn('[AutoLine] ' + msg); }
+    function log(msg)  { console.log('[SH AutoLine] ' + msg); }
+    function warn(msg) { console.warn('[SH AutoLine] ' + msg); }
 
-    function poll(label, conditionFn, onFound, timeoutMs, intervalMs) {
-        timeoutMs  = timeoutMs  || 15000;
-        intervalMs = intervalMs || 300;
-        var elapsed = 0;
-        var tid = setInterval(function () {
-            var result = conditionFn();
+    function poll(label, conditionFn, onFound, timeoutMs = 15000, intervalMs = 300) {
+        let elapsed = 0;
+        const tid = setInterval(() => {
+            const result = conditionFn();
             if (result) {
                 clearInterval(tid);
                 onFound(result);
@@ -53,12 +51,11 @@
                 warn('Timed out: ' + label);
             }
         }, intervalMs);
-        return function () { clearInterval(tid); };
     }
 
     function getCsrfToken() {
-        var el = document.querySelector('input[name="__RequestVerificationToken"]')
-               || document.querySelector('meta[name="RequestVerificationToken"]');
+        const el = document.querySelector('input[name="__RequestVerificationToken"]') ||
+                   document.querySelector('meta[name="RequestVerificationToken"]');
         return el ? (el.value || el.getAttribute('content')) : null;
     }
 
@@ -71,16 +68,16 @@
     // =========================================================================
 
     function fillWorkOrderDesc() {
-        var textarea = document.getElementById('AerospaceHead_WorkOrderDesc');
-        if (textarea && textarea.value === '') {
+        const textarea = document.getElementById('AerospaceHead_WorkOrderDesc');
+        if (!textarea) return warn('Work order textarea not found.');
+
+        if (textarea.value.trim() === '') {
             textarea.value = WORK_ORDER_TEXT;
             textarea.dispatchEvent(new Event('change', { bubbles: true }));
-            textarea.dispatchEvent(new Event('input',  { bubbles: true }));
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
             log('Work order description filled.');
-        } else if (!textarea) {
-            warn('Work order textarea not found.');
         } else {
-            log('Work order description already has content, skipping.');
+            log('Work order description already has content.');
         }
     }
 
@@ -89,93 +86,94 @@
     // =========================================================================
 
     function tableHasLines() {
-        var table = document.getElementById('order-line-area');
+        const table = document.getElementById('order-line-area');
         if (!table) return false;
-        return table.innerHTML.indexOf('S-100542') !== -1
-            || table.innerHTML.indexOf(SERVICE_ID)  !== -1;
+        return table.innerHTML.includes('S-100542') || table.innerHTML.includes(SERVICE_ID);
     }
 
     function findServiceRow() {
-        var rows = document.querySelectorAll('#order-line-area tbody tr');
-        for (var i = 0; i < rows.length; i++) {
-            if (rows[i].innerHTML.indexOf('S-100542') !== -1
-             || rows[i].innerHTML.indexOf(SERVICE_ID) !== -1) {
-                return rows[i];
+        const rows = document.querySelectorAll('#order-line-area tbody tr');
+        for (const row of rows) {
+            if (row.innerHTML.includes('S-100542') || row.innerHTML.includes(SERVICE_ID)) {
+                return row;
             }
         }
         return null;
     }
 
     function getServiceLineId() {
-        var row = findServiceRow();
+        const row = findServiceRow();
         if (!row) return null;
-        var m = row.id.match(/OrderLine_(.+)/);
-        return m ? m[1] : null;
+        const match = row.id.match(/OrderLine_(.+)/);
+        return match ? match[1] : null;
     }
 
     function setSourceTypeToJob() {
-        var lineId = getServiceLineId();
+        const lineId = getServiceLineId();
         if (!lineId) return;
-        var sourceRow = document.getElementById('OrderLineSourceArea_' + lineId);
+
+        const sourceRow = document.getElementById('OrderLineSourceArea_' + lineId);
         if (!sourceRow) return;
-        var select = sourceRow.querySelector('select[id^="OrderLineSourceType_"]');
+
+        const select = sourceRow.querySelector('select[id^="OrderLineSourceType_"]');
         if (select && select.value !== '6') {
             select.value = '6';
             try { sourceTypeChanged(select); } catch (e) {}
+            log('Source type set to Job');
         }
     }
 
     function setServiceLineQuantityToOne() {
-        var row = findServiceRow();
+        const row = findServiceRow();
         if (!row) return;
-        var input = row.querySelector('input[id^="OrderLineQuantityMask_"]');
-        if (input && (parseFloat(input.value) === 0 || input.value === '')) {
+
+        const input = row.querySelector('input[id^="OrderLineQuantityMask_"]');
+        if (input && (parseFloat(input.value) === 0 || !input.value.trim())) {
             input.value = '1';
             input.dispatchEvent(new Event('change', { bubbles: true }));
+            log('Quantity set to 1');
         }
     }
 
     // =========================================================================
-    // PHASED PROCESSING — same approach as TECH version
+    // PHASED PROCESSING
     // =========================================================================
 
     function phaseProcess() {
-        var lineId = getServiceLineId();
-        if (!lineId) { warn('phaseProcess: no service line ID'); return; }
-        var checkbox = document.getElementById('check_' + lineId);
-        if (!checkbox) { warn('phaseProcess: checkbox not found'); return; }
-        checkbox.checked = true;
-        try { checkLine(checkbox, lineId); } catch (e) {}
+        const lineId = getServiceLineId();
+        if (!lineId) return;
 
-        poll('processSourceLines button', function () {
-            var btn = document.getElementById('processSourceLines');
+        const checkbox = document.getElementById('check_' + lineId);
+        if (checkbox) {
+            checkbox.checked = true;
+            try { checkLine(checkbox, lineId); } catch (e) {}
+        }
+
+        poll('processSourceLines', () => {
+            const btn = document.getElementById('processSourceLines');
             return (btn && btn.style.display !== 'none') ? btn : null;
-        }, function () {
-            setTimeout(function () {
-                try { processSourceLines(); log('processSourceLines called.'); }
-                catch (e) { warn('processSourceLines: ' + e.message); }
-            }, 100);
-        }, 10000, 100);
+        }, () => {
+            setTimeout(() => {
+                try {
+                    processSourceLines();
+                    log('processSourceLines called');
+                } catch (e) { warn('processSourceLines: ' + e.message); }
+            }, 150);
+        }, 10000, 150);
     }
 
     function phaseSave() {
-        poll('saveLines fn', function () {
-            return typeof saveLines === 'function' ? true : null;
-        }, function () {
+        poll('saveLines', () => typeof saveLines === 'function', () => {
             log('Saving lines...');
             saveLines();
-            setTimeout(phaseProcess, 1500);
+            setTimeout(phaseProcess, 1300);
         });
     }
 
     function phaseConfigureAndSave() {
-        poll('OrderLineSourceType', function () {
-            return document.querySelector('select[id^="OrderLineSourceType_"]');
-        }, function () {
+        poll('SourceType select', () => document.querySelector('select[id^="OrderLineSourceType_"]'), () => {
             setSourceTypeToJob();
-            poll('OrderLineQuantityMask', function () {
-                return document.querySelector('input[id^="OrderLineQuantityMask_"]');
-            }, function () {
+            poll('QuantityMask input', () => document.querySelector('input[id^="OrderLineQuantityMask_"]'), () => {
                 setServiceLineQuantityToOne();
                 phaseSave();
             });
@@ -183,43 +181,70 @@
     }
 
     function injectHtml(html) {
-        var table = document.getElementById('order-line-area');
-        if (!table) return;
-        var tbody = table.querySelector('tbody');
-        if (!tbody) return;
-        var tpl = document.createElement('template');
+        const table = document.getElementById('order-line-area');
+        if (!table?.querySelector('tbody')) return;
+
+        const tpl = document.createElement('template');
         tpl.innerHTML = html;
-        tpl.content.querySelectorAll('script').forEach(function (s) { s.remove(); });
-        tbody.appendChild(tpl.content);
-        log('Service line injected.');
+        tpl.content.querySelectorAll('script').forEach(s => s.remove());
+        table.querySelector('tbody').appendChild(tpl.content);
+
+        log('New service line injected');
         phaseConfigureAndSave();
     }
 
     function observeForNewLines() {
-        var table = document.getElementById('order-line-area');
+        const table = document.getElementById('order-line-area');
         if (!table) return;
-        var debounce = null;
-        var obs = new MutationObserver(function () {
-            clearTimeout(debounce);
-            debounce = setTimeout(function () {
-                setServiceLineQuantityToOne();
-                if (findServiceRow()) {
-                    obs.disconnect();
-                    log('Observer disconnected.');
-                }
-            }, 200);
+
+        const obs = new MutationObserver(() => {
+            setServiceLineQuantityToOne();
+            if (findServiceRow()) {
+                obs.disconnect();
+                log('Observer disconnected - line found');
+            }
         });
+
         obs.observe(table, { childList: true, subtree: true });
     }
 
+    // =========================================================================
+    // MAIN LABOR LINE LOGIC (Copied/Adapted from TECH script)
+    // =========================================================================
+
     function addServiceLine() {
-        if (tableHasLines()) { log('Lines already exist, skipping auto-add.'); return; }
-        var orderId = getOrderId();
-        if (!orderId) { warn('No order ID.'); return; }
-        fetch('/Orders/Orders/Edit?handler=NewServiceLine'
-            + '&orderId='   + encodeURIComponent(orderId)
-            + '&serviceId=' + encodeURIComponent(SERVICE_ID)
-            + '&quantity=1', {
+        // Case 1: Line already exists
+        if (tableHasLines()) {
+            const lineId = getServiceLineId();
+            if (lineId) {
+                const sourceArea = document.getElementById('OrderLineSourceArea_' + lineId);
+                if (sourceArea) {
+                    const locked = sourceArea.querySelector('input[id^="OrderLineSourceLocked_"]');
+                    const isProcessed = locked && locked.value;
+
+                    if (!isProcessed) {
+                        log('Existing labor line found (unprocessed) — configuring and processing it.');
+                        setSourceTypeToJob();
+                        setServiceLineQuantityToOne();
+                        phaseSave();
+                        return;
+                    }
+                }
+            }
+            log('Labor line already exists and is processed.');
+            return;
+        }
+
+        // Case 2: No line exists → Add new one
+        const orderId = getOrderId();
+        if (!orderId) return warn('No order ID found');
+
+        log('No labor line found — adding new one...');
+
+        fetch('/Orders/Orders/Edit?handler=NewServiceLine' +
+            '&orderId='   + encodeURIComponent(orderId) +
+            '&serviceId=' + encodeURIComponent(SERVICE_ID) +
+            '&quantity=1', {
             method: 'POST',
             headers: {
                 'Accept': '*/*',
@@ -230,23 +255,22 @@
             credentials: 'include',
             body: ''
         })
-        .then(function (r) { return r.ok ? r.text() : null; })
-        .then(function (html) { if (html) injectHtml(html); })
-        .catch(function (err) { warn('Fetch error: ' + err); });
+        .then(r => r.ok ? r.text() : null)
+        .then(html => { if (html) injectHtml(html); })
+        .catch(err => warn('Fetch error: ' + err));
     }
 
     // =========================================================================
-    // MAIN
+    // INIT
     // =========================================================================
 
-    poll('order-line-area', function () {
-        return document.getElementById('order-line-area');
-    }, function () {
+    poll('order-line-area', () => document.getElementById('order-line-area'), () => {
         fillWorkOrderDesc();
-        setTimeout(function () {
+
+        setTimeout(() => {
             addServiceLine();
             observeForNewLines();
-        }, 500);
+        }, 700);
     });
 
 })();
