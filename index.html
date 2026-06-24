@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bristow Scripts — Install Page</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      padding: 40px 20px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      color: #1a1a2e;
+      margin-bottom: 8px;
+    }
+
+    header p {
+      color: #666;
+      font-size: 1rem;
+    }
+
+    .notice {
+      background: #fff8e1;
+      border-left: 4px solid #f5a623;
+      padding: 14px 18px;
+      border-radius: 6px;
+      max-width: 700px;
+      margin: 0 auto 40px;
+      font-size: 0.9rem;
+      color: #555;
+      line-height: 1.6;
+    }
+
+    .notice strong { color: #333; }
+
+    .role-section {
+      max-width: 700px;
+      margin: 0 auto 32px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+
+    .role-header {
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .role-header.all    { background: #2c3e50; }
+    .role-header.tech   { background: #1a6e40; }
+    .role-header.fesh   { background: #7b2d8b; }
+
+    .role-header h2 {
+      color: #fff;
+      font-size: 1.1rem;
+      font-weight: 700;
+    }
+
+    .role-header p {
+      color: rgba(255,255,255,0.75);
+      font-size: 0.82rem;
+      margin-top: 2px;
+    }
+
+    .role-icon {
+      font-size: 1.6rem;
+      flex-shrink: 0;
+    }
+
+    .script-list {
+      padding: 8px 0;
+    }
+
+    .subheading {
+      padding: 8px 24px 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #aaa;
+      border-top: 1px solid #f0f0f0;
+      margin-top: 4px;
+    }
+
+    .subheading:first-child {
+      border-top: none;
+      margin-top: 0;
+    }
+
+    .script-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      border-bottom: 1px solid #f0f0f0;
+      gap: 16px;
+    }
+
+    .script-item:last-child { border-bottom: none; }
+
+    .script-info { flex: 1; }
+
+    .script-info strong {
+      display: block;
+      font-size: 0.92rem;
+      color: #1a1a2e;
+      margin-bottom: 2px;
+    }
+
+    .script-info span {
+      font-size: 0.8rem;
+      color: #888;
+    }
+
+    .install-btn {
+      display: inline-block;
+      padding: 7px 16px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: opacity 0.15s;
+      color: #fff;
+    }
+
+    .install-btn:hover { opacity: 0.85; }
+
+    .all  .install-btn { background: #2c3e50; }
+    .tech .install-btn { background: #1a6e40; }
+    .fesh .install-btn { background: #7b2d8b; }
+
+    footer {
+      text-align: center;
+      color: #aaa;
+      font-size: 0.8rem;
+      margin-top: 40px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🛠️ Bristow Scripts</h1>
+  <p>Click Install on the scripts for your role. Tampermonkey will handle the rest.</p>
+</header>
+
+<div class="notice">
+  <strong>First time?</strong> Make sure you have <a href="https://www.tampermonkey.net/" target="_blank">Tampermonkey</a> installed in your browser first. If you already have an old version of a script, delete it from your Tampermonkey dashboard after installing the new one.
+</div>
+
+<!-- ALL -->
+<div class="role-section all">
+  <div class="role-header all">
+    <div class="role-icon">👥</div>
+    <div>
+      <h2>ALL — Everyone installs these</h2>
+      <p>Optional for all staff</p>
+    </div>
+  </div>
+  <div class="script-list">
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Floating Text Blaze Box - No-auto update</strong>
+        <span>Adds a small floating text box in the top toolbar for pasting Text Blaze macros. Type your shortcut and let Text Blaze expand it.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Floating-Text-Blaze-Box.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Set Qty Default to 1</strong>
+        <span>When adding parts or services to a work order, the quantity defaults to 1 instead of 0 — saves a click every time.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Set-Qty-Default-to-1.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Manuals Remember State</strong>
+        <span>The Manuals section remembers whether you left it open or closed. Stays collapsed if you closed it last time, even after saving or editing.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Manuals-Remember-State.user.js">▶ Install</a>
+    </div>
+  </div>
+</div>
+
+<!-- TECH -->
+<div class="role-section tech">
+  <div class="role-header tech">
+    <div class="role-icon">🔧</div>
+    <div>
+      <h2>TECH — Technicians</h2>
+      <p>Optional scripts for techs</p>
+    </div>
+  </div>
+  <div class="script-list">
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Auto Add Labor + Tech Time Panel</strong>
+        <span>Automatically adds the Labour service line to every work order and sets it up correctly. Also adds a floating panel to log tech hours directly from the order page without opening the Job.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Auto Grow Work Order Description</strong>
+        <span>The Work Order Description text box automatically grows as you type so you can see the full text without scrolling inside the box.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Grow-Work-Order-Description.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Force Contact Section Collapsed</strong>
+        <span>Keeps the Contact section collapsed by default on the order page. Techs rarely need it — this keeps it out of the way.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Force-Contact-Section-Collapsed.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Hide Totals Footer</strong>
+        <span>Hides the cost totals bar at the bottom of the order page. Techs don't set pricing, so this removes the distraction.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Hide-Totals-Footer.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Orders Grid Filter Optimizer</strong>
+        <span>Makes the Customer Orders list much faster by loading all orders locally. Adds WIP filter, Clear Filters, and Order Status dropdown. Completed and Cancelled orders are shown by default.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Orders-Grid-Filter-Optimizer.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Page Reorganiser</strong>
+        <span>Tidies up the order/job edit page for techs — hides irrelevant buttons, reports, and sections, freezes locked fields to a clean read-only display, hides pricing columns on order lines, and adds a Tech Mode toggle plus inline per-line notes.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Page-Reorganiser.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Parts Preloader</strong>
+        <span>Loads and caches the full parts list in the background so searching for parts is instant. Refreshes every hour automatically — use the Refresh Parts button to force an update.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Parts-Preloader.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Time Expanded Section Trimmed</strong>
+        <span>Adds a Time Expanded section directly below the parts list on the order page. Shows the job's service lines (hours logged) without needing to open the Job separately. Clutter removed.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Time-Expanded-Section-Trimmed.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Uppercase Forced Work Order Description</strong>
+        <span>Automatically converts the Work Order Description, Customer Snag, and Internal Snag to uppercase when you save. No need to type in caps.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Uppercase-Forced-work-order-description.user.js">▶ Install</a>
+    </div>
+  </div>
+</div>
+
+<!-- FE + SH combined -->
+<div class="role-section fesh">
+  <div class="role-header fesh">
+    <div class="role-icon">📋📦</div>
+    <div>
+      <h2>FE / SH — Front End &amp; Shop</h2>
+      <p>Install ALL scripts above first</p>
+    </div>
+  </div>
+  <div class="script-list">
+
+    <div class="subheading">FE — Front End / Estimators</div>
+
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Force Contact Section Expanded</strong>
+        <span>Keeps the Contact section expanded by default on the order page. Front end staff need this visible to verify contact details.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Force-Contact-Section-Expanded.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Manuals Section Collapsed Default</strong>
+        <span>Collapses the Manuals section by default. Front end staff rarely need to look at manuals, so this keeps the page tidier.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Manuals-Section-Collapsed-Default.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Second Save Button - no-auto update</strong>
+        <span>Adds a second Save button fixed to the screen for saving order line items. Useful when you've scrolled far down and don't want to scroll back up to save.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Second-Save-Button.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Time Expanded Section Full Version</strong>
+        <span>Adds a Time Expanded section below the parts list showing the full job view in an embedded panel — includes all service lines and hours.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Time-Expanded-Section-full-version.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Parts Preloader</strong>
+        <span>Loads and caches the full parts list in the background so searching for parts is instant. Refreshes every hour automatically — use the Refresh Parts button to force an update.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Parts-Preloader.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Net 0 Customer Warning</strong>
+        <span>Fetches the customer's payment terms in the background when you open a work order. If their terms are Net 0, the order info panel turns red and a warning badge appears next to the company name.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Net-0-Customer-Warning.user.js">▶ Install</a>
+    </div>
+
+    <div class="subheading">SH — Shop / Shipping</div>
+
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Auto Add Labor &amp; Process W/ WO Desc</strong>
+        <span>Automatically fills in the standard Work Order Description template, adds the Labour service line, sets it to Job type, and processes it — all in one step when you open the order.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Auto-Add-Labor-Process-W-WO-Desc.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Auto-Uploader (Photos + Scanner)</strong>
+        <span>Adds an upload panel for attaching phone photos and scanner documents directly to a work order without going through the Uploads section.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Bristow-Auto-Uploader-Photos-Scanner.user.js">▶ Install</a>
+    </div>
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Orders Grid Filter Optimizer</strong>
+        <span>Makes the Customer Orders list much faster by loading all orders locally. Adds WIP filter, Clear Filters, and Order Status dropdown. Completed and Cancelled orders are shown by default.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js">▶ Install</a>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  Bristow Scripts — hosted on GitHub Pages · <a href="https://github.com/Bristow-Scripts/bristow-scripts" target="_blank">View on GitHub</a>
+</footer>
+
+</body>
+</html>
