@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name TECH - Page Reorganiser
 // @namespace https://bristow-scripts.github.io/bristow-scripts
-// @version 4.2
+// @version 4.3
 // @description Cleans up the order page for techs — hides irrelevant buttons and sections.
 // @author Jordon Gross
 // @match https://bristow-app.azurewebsites.net/*
