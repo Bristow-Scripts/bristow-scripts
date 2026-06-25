@@ -1,9 +1,8 @@
 // ==UserScript==
 // @name TECH - Page Reorganiser
 // @namespace https://bristow-scripts.github.io/bristow-scripts
-// @version 4.4
+// @version 4.5
 // @description Cleans up the order page for techs — hides irrelevant buttons and sections.
-// @author Jordon Gross
 // @match https://bristow-app.azurewebsites.net/*
 // @noframes
 // @grant none
@@ -545,8 +544,7 @@
     const HIDE_BUTTONS_CLASS = 'tech-buttons-hidden';
 
     function hideButtons() {
-        if (!techMode) return;
-        // Price guide button in the condensed-label table's button column
+if (!techMode || !isOrderPage) return;        // Price guide button in the condensed-label table's button column
         document.querySelectorAll('table.table-bordered.table-condensed.small .btn-warning').forEach(btn => {
             if (!btn.classList.contains(HIDE_BUTTONS_CLASS)) {
                 btn.classList.add(HIDE_BUTTONS_CLASS);
@@ -1078,6 +1076,7 @@ function preDiscoverFormAction() {}
     }
 
     function repositionAllNoteRows() {
+        if (!isOrderPage) return;
         document.querySelectorAll(`.${INLINE_NOTE_CLASS}[data-line-id]`).forEach(noteRow => {
             const lineId = noteRow.dataset.lineId;
             if (lineId) repositionNoteRow(lineId);
