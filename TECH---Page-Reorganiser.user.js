@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name TECH - Page Reorganiser
 // @namespace https://bristow-scripts.github.io/bristow-scripts
-// @version 4.5
+// @version 4.6
 // @description Cleans up the order page for techs — hides irrelevant buttons and sections.
 // @match https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -144,7 +144,8 @@
 
     function renameCompleteOrderByHeader() {
         if (!techMode) return;
-        document.querySelectorAll('th').forEach(th => {
+        const scope = document.getElementById('HeaderSection') || document;
+        scope.querySelectorAll('th').forEach(th => {
             if (th.textContent.trim() === 'Complete Order By') {
                 th.textContent = 'Completed Order On';
             }
@@ -360,10 +361,18 @@
         return css;
     }
 
+    let lastCSSOutput = null;
+
     function refreshCSS() {
         const style = document.getElementById('tech-mode-style');
-        if (style) style.textContent = buildCSS();
-        hideOrderLineHeaders(); // re-run header hiding when CSS is rebuilt
+        if (style) {
+            const newCSS = buildCSS();
+            if (newCSS !== lastCSSOutput) {
+                lastCSSOutput = newCSS;
+                style.textContent = newCSS;
+            }
+        }
+        hideOrderLineHeaders();
     }
 
     function hideOrderLineHeaders() {
@@ -654,6 +663,9 @@ if (!techMode || !isOrderPage) return;        // Price guide button in the conde
         if (pinnedServiceCaptured) return;
         const grid = document.querySelector('#serviceGrid');
         if (!grid) return;
+        if (grid.dataset.techWatchSetup) return;
+        grid.dataset.techWatchSetup = '1';
+
         try {
             const kg = $(grid).data('kendoGrid');
             if (kg && kg.dataSource) {
