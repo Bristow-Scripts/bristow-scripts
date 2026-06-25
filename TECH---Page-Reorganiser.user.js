@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name TECH - Page Reorganiser
 // @namespace https://bristow-scripts.github.io/bristow-scripts
-// @version 4.3
+// @version 4.4
 // @description Cleans up the order page for techs — hides irrelevant buttons and sections.
+// @author Jordon Gross
 // @match https://bristow-app.azurewebsites.net/*
 // @noframes
 // @grant none
-// @updateURL https://bristow-scripts.github.io/bristow-scripts/TECH---Page-Reorganiser.user.js
+// @updateURL https://bristow-scripts.github.io/bristow-scripts/TECH---Page-Reorganiser.meta.js
 // @downloadURL https://bristow-scripts.github.io/bristow-scripts/TECH---Page-Reorganiser.user.js
 // ==/UserScript==
 
@@ -273,6 +274,7 @@
             #collapseAerospace > div:nth-child(3) > table > tbody { display: flex !important; flex-direction: row !important; }
             #collapseAerospace > div:nth-child(3) > table > tbody > tr { margin-right: 20px; }
 
+            tr.forex { display: none !important; }
             a.field-history-link { display: none !important; }
 
             .form-group.label-card:has(#order_TagSearch_6c43dba4-9971-42a6-c94d-08dbe5ef7f76),
