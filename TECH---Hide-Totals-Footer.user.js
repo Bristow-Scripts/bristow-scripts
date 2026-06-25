@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         TECH - Hide Totals Footer
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.4
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Hide-Totals-Footer.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Hide-Totals-Footer.user.js
 // @description  Keeps footer buttons while permanently hiding totals section
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
+// @match        https://bristow-app.azurewebsites.net/Orders/Jobs/Edit*
 // @grant        none
 // ==/UserScript==
 
@@ -47,7 +48,6 @@
     observer.observe(document.body, {
         childList: true,
         subtree: true,
-        attributes: true
     });
 
 })();
