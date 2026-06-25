@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Auto Grow Work Order Description
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Grow-Work-Order-Description.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Grow-Work-Order-Description.user.js
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -24,22 +24,22 @@
         textarea.style.height = newHeight + "px";
     }
 
-    function init() {
-        const textarea = document.getElementById("AerospaceHead_WorkOrderDesc");
-        if (!textarea) return;
+function init() {
+    const textarea = document.getElementById("AerospaceHead_WorkOrderDesc");
+    if (!textarea) return;
+    if (textarea.dataset.autoGrowAttached) return;   // ← add this
+    textarea.dataset.autoGrowAttached = "1";          // ← add this
 
-        textarea.style.resize = "vertical";
-        textarea.style.overflow = "hidden";
+    textarea.style.resize = "vertical";
+    textarea.style.overflow = "hidden";
+    textarea.style.minHeight = MIN_HEIGHT + "px";
 
-        // Set minimum height visually too (helps on first render)
-        textarea.style.minHeight = MIN_HEIGHT + "px";
+    autoGrow(textarea);
 
+    textarea.addEventListener("input", function () {
         autoGrow(textarea);
-
-        textarea.addEventListener("input", function () {
-            autoGrow(textarea);
-        });
-    }
+    });
+}
 
     window.addEventListener("DOMContentLoaded", init);
 
