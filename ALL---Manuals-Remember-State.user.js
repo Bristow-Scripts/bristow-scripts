@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALL - Manuals remember state
 // @namespace    http://tampermonkey.net/
-// @version      3.1
+// @version      3.3
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Manuals-Remember-State.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Manuals-Remember-State.user.js
 // @description  Default expanded, remembers collapse state, re-applies state on re-renders (e.g. after Save button click)
