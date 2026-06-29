@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         TECH - Parts Preloader
 // @namespace    http://tampermonkey.net/
-// @version      4.2
+// @version      4.3
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Parts-Preloader.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Parts-Preloader.user.js
 // @description  Caches full parts dataset in IndexedDB — instant load after first fetch
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
+// @require      https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Shared-Core.user.js
 // @grant        none
 // ==/UserScript==
 
@@ -16,11 +17,18 @@
     var DB_VERSION = 1;
     var STORE_NAME = 'parts';
     var CACHE_KEY  = 'allParts';
-    var MAX_AGE_MS = 24 * 60 * 60 * 1000; // refresh cache once per day
+    var MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
     var _indicator   = null;
     var _refreshBtn  = null;
     var _currentGrid = null;
+
+    var _log = function (msg, level) {
+        var prefix = '[PartsCache]';
+        if (window.TechShared) { TechShared.log(msg); return; }
+        if (level === 'warn') console.warn(prefix + ' ' + msg);
+        else console.log(prefix + ' ' + msg);
+    };
 
     function showStatus(msg, color) {
         if (!_indicator) {
@@ -46,10 +54,6 @@
         }, delay || 2000);
     }
 
-    // =========================================================================
-    // SILENT FETCH: fetch fresh parts via fetch() — never touches Kendo transport
-    // =========================================================================
-
     function silentFetchAndCache(onDone) {
         var params = [
             'sort%5B0%5D%5Bfield%5D=Description',
@@ -63,7 +67,7 @@
             .then(function (data) {
                 var records = data && data.Data ? data.Data : (Array.isArray(data) ? data : null);
                 if (!records || records.length === 0) {
-                    console.warn('[PartsCache] Silent fetch returned no records.');
+                    _log('Silent fetch returned no records.', 'warn');
                     onDone && onDone(false);
                     return;
                 }
@@ -74,12 +78,12 @@
                             options.success(records);
                         };
                     }
-                    console.log('[PartsCache] Silent fetch saved ' + records.length + ' parts.');
+                    _log('Silent fetch saved ' + records.length + ' parts.');
                     onDone && onDone(true);
                 });
             })
             .catch(function (e) {
-                console.warn('[PartsCache] Silent fetch failed:', e);
+                _log('Silent fetch failed: ' + e.message, 'warn');
                 onDone && onDone(false);
             });
     }
@@ -113,10 +117,6 @@
         document.body.appendChild(_refreshBtn);
     }
 
-    // =========================================================================
-    // INDEXEDDB HELPERS
-    // =========================================================================
-
     function openDB(callback) {
         var req = indexedDB.open(DB_NAME, DB_VERSION);
         req.onupgradeneeded = function (e) {
@@ -146,34 +146,6 @@
         });
     }
 
-    // =========================================================================
-    // WAIT FOR KENDO GRID
-    // =========================================================================
-
-    function waitForGrid(callback) {
-        var tries    = 0;
-        var maxTries = 60;
-        var tid = setInterval(function () {
-            tries++;
-            try {
-                var grid = window.$ && $('#partGrid').data('kendoGrid');
-                if (grid && grid.dataSource) {
-                    clearInterval(tid);
-                    callback(grid);
-                    return;
-                }
-            } catch (e) {}
-            if (tries >= maxTries) {
-                clearInterval(tid);
-                console.warn('[PartsCache] Grid never appeared.');
-            }
-        }, 200);
-    }
-
-    // =========================================================================
-    // INTERCEPT: save data after Kendo fetches it from server
-    // =========================================================================
-
     function interceptAndCache(grid) {
         grid.dataSource.bind('change', function () {
             var data = grid.dataSource.data();
@@ -183,15 +155,11 @@
                 plain.push(data[i].toJSON ? data[i].toJSON() : data[i]);
             }
             dbSet(CACHE_KEY, { timestamp: Date.now(), records: plain }, function (err) {
-                if (err) console.warn('[PartsCache] Save failed:', err);
-                else console.log('[PartsCache] Saved ' + plain.length + ' parts to IndexedDB.');
+                if (err) _log('Save failed: ' + err, 'warn');
+                else _log('Saved ' + plain.length + ' parts to IndexedDB.');
             });
         });
     }
-
-    // =========================================================================
-    // INJECT: load cached data into grid, skip server fetch
-    // =========================================================================
 
     function injectFromCache(grid, records) {
         try {
@@ -200,53 +168,72 @@
             };
             grid.dataSource.data(records);
             try { kendo.ui.progress(grid.wrapper, false); } catch (e2) {}
-            console.log('[PartsCache] Injected ' + records.length + ' parts from cache.');
+            _log('Injected ' + records.length + ' parts from cache.');
         } catch (e) {
-            console.warn('[PartsCache] Inject failed:', e);
+            _log('Inject failed: ' + e.message, 'warn');
         }
     }
 
-    // =========================================================================
-    // MAIN
-    // =========================================================================
+    function onGridReady(grid) {
+        _currentGrid = grid;
+        injectRefreshButton();
+
+        dbGet(CACHE_KEY, function (err, cached) {
+            var now     = Date.now();
+            var isStale = !cached || (now - cached.timestamp) > MAX_AGE_MS;
+            var isEmpty = !cached || !cached.records || cached.records.length === 0;
+
+            if (isEmpty) {
+                showStatus('⏳ Loading parts (first time)...', '#555');
+                interceptAndCache(grid);
+                grid.dataSource.read();
+                grid.dataSource.bind('change', function () {
+                    if (grid.dataSource.data().length > 0) {
+                        showStatus('✔ Parts loaded & cached', '#27ae60');
+                        hideStatus(2500);
+                    }
+                });
+            } else if (isStale) {
+                showStatus('⚡ Parts loaded from cache', '#27ae60');
+                injectFromCache(grid, cached.records);
+                hideStatus(1500);
+                setTimeout(function () {
+                    silentFetchAndCache(function (success) {
+                        _log('Background refresh ' + (success ? 'succeeded' : 'failed'));
+                    });
+                }, 5000);
+            } else {
+                showStatus('⚡ Parts loaded from cache', '#27ae60');
+                injectFromCache(grid, cached.records);
+                hideStatus(1500);
+            }
+        });
+    }
 
     window.addEventListener('load', function () {
-        waitForGrid(function (grid) {
-            _currentGrid = grid;
-            injectRefreshButton();
-
-            dbGet(CACHE_KEY, function (err, cached) {
-                var now     = Date.now();
-                var isStale = !cached || (now - cached.timestamp) > MAX_AGE_MS;
-                var isEmpty = !cached || !cached.records || cached.records.length === 0;
-
-                if (isEmpty) {
-                    showStatus('⏳ Loading parts (first time)...', '#555');
-                    interceptAndCache(grid);
-                    grid.dataSource.read();
-                    grid.dataSource.bind('change', function () {
-                        if (grid.dataSource.data().length > 0) {
-                            showStatus('✔ Parts loaded & cached', '#27ae60');
-                            hideStatus(2500);
-                        }
-                    });
-                } else if (isStale) {
-                    showStatus('⚡ Parts loaded from cache', '#27ae60');
-                    injectFromCache(grid, cached.records);
-                    hideStatus(1500);
-                    // Background refresh via fetch — never touches Kendo transport
-                    setTimeout(function () {
-                        silentFetchAndCache(function (success) {
-                            console.log('[PartsCache] Background refresh ' + (success ? 'succeeded' : 'failed'));
-                        });
-                    }, 5000);
-                } else {
-                    showStatus('⚡ Parts loaded from cache', '#27ae60');
-                    injectFromCache(grid, cached.records);
-                    hideStatus(1500);
+        if (window.TechShared) {
+            TechShared.kendo.waitForGrid('partGrid', function (grid) {
+                onGridReady(grid);
+            }, 12000);
+        } else {
+            var tries = 0;
+            var maxTries = 60;
+            var tid = setInterval(function () {
+                tries++;
+                try {
+                    var grid = window.$ && $('#partGrid').data('kendoGrid');
+                    if (grid && grid.dataSource) {
+                        clearInterval(tid);
+                        onGridReady(grid);
+                        return;
+                    }
+                } catch (e) {}
+                if (tries >= maxTries) {
+                    clearInterval(tid);
+                    console.warn('[PartsCache] Grid never appeared.');
                 }
-            });
-        });
+            }, 200);
+        }
     });
 
 })();
