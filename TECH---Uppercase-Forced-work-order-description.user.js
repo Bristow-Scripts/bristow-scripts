@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         TECH - Uppercase Forced work order description
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.5
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Uppercase-Forced-work-order-description.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Uppercase-Forced-work-order-description.user.js
+// @require      https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Shared-Core.user.js
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
 // ==/UserScript==
@@ -11,36 +12,30 @@
 (function() {
     'use strict';
 
+    var TARGET_FIELDS = ['AerospaceHead.WorkOrderDesc', 'AerospaceHead.InternalSnag', 'AerospaceHead.CustomerSnag'];
+
     function upperCaseField(body, fieldName) {
-        const regex = new RegExp(`(${fieldName}=)([^&]*)`, 'g');
-
-        return body.replace(regex, (match, key, value) => {
+        var regex = new RegExp('(' + fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=)([^&]*)', 'g');
+        return body.replace(regex, function(match, key, value) {
             try {
-                // Convert + back to spaces BEFORE decoding
-                const fixed = value.replace(/\+/g, '%20');
-
-                const decoded = decodeURIComponent(fixed);
-                const upper = decoded.toUpperCase();
-
-                return key + encodeURIComponent(upper);
+                return key + encodeURIComponent(decodeURIComponent(value.replace(/\+/g, '%20')).toUpperCase());
             } catch (e) {
                 return match;
             }
         });
     }
 
-    const originalSend = XMLHttpRequest.prototype.send;
-
+    var originalSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.send = function(body) {
-        try {
-            if (typeof body === 'string') {
-                body = upperCaseField(body, 'AerospaceHead.WorkOrderDesc');
-                body = upperCaseField(body, 'AerospaceHead.InternalSnag');
-                body = upperCaseField(body, 'AerospaceHead.CustomerSnag');
-            }
-        } catch (e) {}
+        if (typeof body !== 'string') return originalSend.call(this, body);
+        if (body.indexOf('AerospaceHead.') === -1) return originalSend.call(this, body);
 
+        try {
+            for (var i = 0; i < TARGET_FIELDS.length; i++) {
+                body = upperCaseField(body, TARGET_FIELDS[i]);
+            }
+            if (window.TechShared) window.TechShared.log('Uppercase applied to POST body');
+        } catch (e) {}
         return originalSend.call(this, body);
     };
-
 })();
