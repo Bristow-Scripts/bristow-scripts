@@ -1,133 +1,208 @@
 // ==UserScript==
-// @name TECH - Page Reorganiser
-// @namespace https://bristow-scripts.github.io/bristow-scripts
-// @version 4.6
-// @description Cleans up the order page for techs — hides irrelevant buttons and sections.
-// @match https://bristow-app.azurewebsites.net/*
+// @name         TECH - Page Reorganiser
+// @namespace    https://bristow-scripts.github.io/bristow-scripts
+// @version      5.5
+// @description  Cleans up the order page for techs. Uses TechShared core for observer management.
+// @match        https://bristow-app.azurewebsites.net/*
 // @noframes
-// @grant none
-// @updateURL https://bristow-scripts.github.io/bristow-scripts/TECH---Page-Reorganiser.meta.js
-// @downloadURL https://bristow-scripts.github.io/bristow-scripts/TECH---Page-Reorganiser.user.js
+// @grant        none
+// @updateURL    https://bristow-scripts.github.io/bristow-scripts/TECH---Page-Reorganiser.meta.js
+// @downloadURL  https://bristow-scripts.github.io/bristow-scripts/TECH---Page-Reorganiser.user.js
+// @require      https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Shared-Core.user.js
 // ==/UserScript==
 
 (function () {
     'use strict';
-    const STORAGE_KEY = 'techModeEnabled';
-    let techMode = localStorage.getItem(STORAGE_KEY) !== 'false';
+    if (location.pathname.startsWith('/ReportGenerator')) return;
+    var TS = window.TechShared || null;
+    var STORAGE_KEY = 'techModeEnabled';
+    var techMode = localStorage.getItem(STORAGE_KEY) !== 'false';
 
-    // ── Buttons to hide by ID ──
-    const HIDDEN_BUTTON_IDS = [
-        'forceCancel',
-        'forceComplete',
-        'emailSubmit',
-        'readyButton',
-        'completeButton',
-    ];
+    let isOrderPage = location.pathname.startsWith('/Orders/Orders/Edit');
+    let isJobsPage = location.pathname.startsWith('/Orders/Jobs/Edit');
+    let isTechPage = isOrderPage || isJobsPage;
 
-    // ── Links to hide by href fragment (via CSS) ──
+    // ── Static config ──
+    const HIDDEN_BUTTON_IDS = ['forceCancel','forceComplete','emailSubmit','readyButton','completeButton'];
     const HIDDEN_HREF_FRAGMENTS = [
-        'ReportName=Order_Report',
-        'ReportName=OrderAlt_Report',
-        'ReportName=AeroOrder_Report',
-        'ReportName=Optional_Report1',
-        'ReportName=Optional_Report2',
-        'ReportName=Optional_Report3',
-        'ReportName=Optional_Report4',
-        'ReportName=Optional_Report5',
-        'ReportName=Optional_Report6',
-        'ReportName=Optional_Report8',
-        'ReportName=Job_Report',
-        'ReportName=JobDetailed_Report',
-        '/TimeTracking/ServiceTimeTracking',
-        '/Orders/Jobs/PerformServices',
+        'ReportName=Order_Report','ReportName=OrderAlt_Report','ReportName=AeroOrder_Report',
+        'ReportName=Optional_Report1','ReportName=Optional_Report2','ReportName=Optional_Report3',
+        'ReportName=Optional_Report4','ReportName=Optional_Report5','ReportName=Optional_Report6',
+        'ReportName=Optional_Report8','ReportName=Job_Report','ReportName=JobDetailed_Report',
+        '/TimeTracking/ServiceTimeTracking','/Orders/Jobs/PerformServices',
     ];
-
-    // ── Sections inside #HeaderSection (re-hidden after AJAX) ──
-    const HIDDEN_HEADER_SECTIONS = [
-        '#collapseContactInfo',
-    ];
-
-    // ── Sections outside #HeaderSection (hidden once) ──
+    const HIDDEN_HEADER_SECTIONS = ['#collapseContactInfo'];
     const HIDDEN_STATIC_SECTIONS = [
-        '#collapseCustomerDocs',
-        '#collapseRQs',
-        '#collapsePOs',
-        '#collapseFulfillments',
-        '#collapseInvoices',
-        '#collapseReturns',
-        '#collapseExpenses',
+        '#collapseCustomerDocs','#collapseRQs','#collapsePOs','#collapseFulfillments',
+        '#collapseInvoices','#collapseReturns','#collapseExpenses',
     ];
-
-    // ── Whole table rows to hide entirely ──
     const HIDDEN_FIELD_ROW_SELECTORS = [
-        '#OrderHead_CustomFields_3__Date',
-        '#OrderHead_CustomFields_4__Date',
-        '#OrderHead_CustomFields_5__Date',
-        '#OrderHead_CustomFields_6__Text',
-        '#OrderHead_CustomFields_13__Label',
-        '#OrderHead_CustomFields_14__Label',
-        '#OrderHead_CustomFields_16__Label',
-        '#OrderHead_CustomFields_13__Text',
-        '#OrderHead_CustomFields_14__Text',
-        '#OrderHead_CustomFields_16__Text',
-        '#AerospaceHead_CostCenter',
-        '#AerospaceHead_EASA',
-        '#AerospaceHead_ShippedBy',
-        '#OrderHead_CustomerContactId',
-        '#OrderHead_TermsAndConditions',
+        '#OrderHead_CustomFields_3__Date','#OrderHead_CustomFields_4__Date','#OrderHead_CustomFields_5__Date',
+        '#OrderHead_CustomFields_6__Text','#OrderHead_CustomFields_13__Label','#OrderHead_CustomFields_14__Label',
+        '#OrderHead_CustomFields_16__Label','#OrderHead_CustomFields_13__Text','#OrderHead_CustomFields_14__Text',
+        '#OrderHead_CustomFields_16__Text','#AerospaceHead_CostCenter','#AerospaceHead_EASA',
+        '#AerospaceHead_ShippedBy','#OrderHead_CustomerContactId','#OrderHead_TermsAndConditions',
         '#OrderHead_ShippingInstructions',
     ];
-
-    // ── Fields to visually freeze ──
     const FROZEN_FIELDS = [
-        { pickerId: 'OrderHead_CustomerId' },
-        { pickerId: 'OrderHead_SelectedOrderTaxes', isMulti: true },
-        { pickerId: 'OrderHead_Project', isPlainInput: true },
-        { pickerId: 'OrderHead_CustomFields_1__OptionId' },
-        { pickerId: 'OrderHead_CustomFields_2__OptionId' },
-        { pickerId: 'OrderHead_CustomFields_9__Text', isPlainInput: true },
-        { pickerId: 'AerospaceHead_AircraftTailNumber', isPlainInput: true },
-        { pickerId: 'AerospaceHead_SerialNumber', isPlainInput: true },
-        { pickerId: 'AerospaceHead_ControlledGood', isCheckbox: true },
-        { pickerId: 'AerospaceHead_IsWarranty', isCheckbox: true },
+        { pickerId:'OrderHead_CustomerId' },{ pickerId:'OrderHead_SelectedOrderTaxes', isMulti:true },
+        { pickerId:'OrderHead_Project', isPlainInput:true },{ pickerId:'OrderHead_CustomFields_1__OptionId' },
+        { pickerId:'OrderHead_CustomFields_2__OptionId' },{ pickerId:'OrderHead_CustomFields_9__Text', isPlainInput:true },
+        { pickerId:'AerospaceHead_AircraftTailNumber', isPlainInput:true },
+        { pickerId:'AerospaceHead_SerialNumber', isPlainInput:true },
+        { pickerId:'AerospaceHead_ControlledGood', isCheckbox:true },
+        { pickerId:'AerospaceHead_IsWarranty', isCheckbox:true },
     ];
-
     const FREEZE_CLASS = 'tech-frozen-overlay';
+    const INLINE_NOTE_CLASS = 'tech-inline-note-row';
+    const PINNED_SERVICE_NUM = 'S-100217';
+    const JOBS_HIDE_CLASS = 'tech-jobs-hidden';
+    const HIDE_BUTTONS_CLASS = 'tech-buttons-hidden';
+
+    let pinnedServiceCaptured = false;
+    let techAjaxSaveUrl = null, techAjaxSaveData = null, techLineIdFieldName = null;
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  CSS — built ONCE, only rebuilt on techMode toggle
+    // ═════════════════════════════════════════════════════════════════════════
+
+    let staticCSS = null;
+
+    function buildCSS(techModeOn) {
+        if (!techModeOn) return '';
+        if (staticCSS) return staticCSS;
+
+        var css = [
+            '#notificationArea, li:has(a[href="/Search/Index"]), li.dropdown:has(a[href="/Companies/Contacts/Index"]) { display: none !important; }',
+            'li.dropdown:has(a[href="/Inventory"]) .dropdown-menu > li:not(:has(a[href="/Inventory"])) { display: none !important; }',
+            'li.dropdown:has(a[href="/Orders/Orders"]) .dropdown-menu > li:not(:has(a[href="/Orders/Orders"])) { display: none !important; }',
+            'li.dropdown:has(a[href="/Catalog/Parts/PartList"]) a[href="/Catalog/Services/ServiceList"] { display: none !important; }'
+        ];
+
+        if (isTechPage) {
+            css.push(HIDDEN_HREF_FRAGMENTS.map(function(f){ return 'a[href*="' + f + '"]' }).join(',') + ' { display: none !important; }');
+            css.push('button[onclick*="openAdvanceSelectByOption"],a.btn-success[href="#AddPartTarget"],a[href*="handler=Template"],button[onclick*="importWizard"],button[onclick*="addPartFromSearch"],button[onclick*="lockComponents"] { display: none !important; }');
+            css.push('.row.content-group:has(a[data-target="#collapseRQs"]),.row.content-group:has(a[data-target="#collapseCustomerDocs"]) { display: none !important; }');
+            css.push('a[href="#RQsTarget"] { display: none !important; }');
+            css.push('.btn-group.btn-group-sm:has(a[href="#HeaderTarget"]) { margin-left: -710px; }');
+            css.push('@media (max-width: 1400px) { .flex-row:has(.btn-group.btn-group-sm) > .custom-header-col:has(.btn-group) { flex-basis: 100% !important; order: 2 !important; margin-top: 8px !important; } .flex-row:has(.btn-group.btn-group-sm) > .custom-header-col:has(.btn-group) > .text-center { display: flex !important; flex-wrap: nowrap !important; justify-content: flex-start !important; align-items: center !important; gap: 4px !important; } .flex-row:has(.btn-group.btn-group-sm) > .vertical-col { order: 1 !important; } .flex-row:has(.btn-group.btn-group-sm) > .order-action-toolbar { order: 0 !important; } .btn-group.btn-group-sm:has(a[href="#HeaderTarget"]) { margin-left: 0 !important; } .btn-group.btn-group-sm:has(a[href="#HeaderTarget"]) + a.btn { margin-left: 0 !important; } }');
+            css.push('.jump-target { scroll-margin-top: 100px !important; }');
+            css.push('tr:has(a[href^="/Orders/Quotes/Edit"]),tr:has(span[data-valmsg-for="OrderHead.OrderTaxes"]) { display: none !important; }');
+            css.push('tr:has(a.btn-primary[href="#AddPartTarget"]):has(a.btn-danger[onclick="removeComponent()"]) { display: none !important; }');
+            css.push('button[onclick*="listBoxToComment"]:not([onclick*="OrderHead_CustomFields_0__OptionId"]),button[onclick*="dateBoxToComment"],button[onclick*="textBoxToComment"] { display: none !important; }');
+
+            HIDDEN_HEADER_SECTIONS.forEach(function(s){
+                css.push(s + ' { display: none !important; }');
+                css.push('.well.well-sm:has(.accordion-toggle[data-target="' + s + '"]) { display: none !important; }');
+            });
+            HIDDEN_STATIC_SECTIONS.forEach(function(s){
+                css.push(s + ' { display: none !important; }');
+                css.push('.well.well-sm:has(.accordion-toggle[data-target="' + s + '"]) { display: none !important; }');
+            });
+            css.push('a.btn-info[href*="Optional_Report7"]:not([data-tech-inspected]) { display: none !important; }');
+            HIDDEN_FIELD_ROW_SELECTORS.forEach(function(s){ css.push('tr:has(' + s + ') { display: none !important; }'); });
+            css.push('tr:has(label[for="OrderHead_TermsAndConditions"]),tr:has(label[for="OrderHead_ShippingInstructions"]) { display: none !important; }');
+
+            css.push('tr.line-item > td:has(input[id^="OrderLineCostMask_"]),tr.line-item > td:has(input[id^="OrderLineMarkup_"]),tr.line-item > td:has(input[id^="OrderLinePriceMask_"]),tr.line-item > td:has(input[id^="OrderLinePricedPerDefault_"]),tr.line-item > td:has(input[id^="OrderLineSubtotal_"]) { display: none !important; }');
+            css.push('tr.sourceLine > td:has(input[id^="OrderLineSourceCost_"]),tr.sourceLine > td:has(input[id^="OrderLineSourceMarkup_"]),tr.sourceLine > td:has(input[id^="OrderLineSourcePrice_"]),tr.sourceLine > td:has(input[id^="OrderLineSourceSubtotal_"]) { display: none !important; }');
+            css.push('tr.sourceLine > td:nth-child(8) { display: none !important; }');
+            css.push('.col-md-8:has([data-target="#order_colAdvSearch"]),#order_colAdvSearch { display: none !important; }');
+            css.push('#collapseAdditional > div:nth-child(10),#collapseAerospace > div:nth-child(1) { display: none !important; }');
+            css.push('#collapseAerospace > div:nth-child(2) > table > tbody > tr:nth-child(2) { display: none !important; }');
+            css.push('#collapseAerospace > div:nth-child(2) { display: inline-block !important; width: auto !important; float: none !important; vertical-align: top !important; margin-right: 20px; }');
+            css.push('#collapseAerospace > div:nth-child(3) { display: inline-block !important; width: auto !important; float: none !important; vertical-align: top !important; }');
+            css.push('#collapseAerospace > div:nth-child(3) > table > tbody { display: flex !important; flex-direction: row !important; }');
+            css.push('#collapseAerospace > div:nth-child(3) > table > tbody > tr { margin-right: 20px; }');
+            css.push('tr.forex { display: none !important; }');
+            css.push('a.field-history-link { display: none !important; }');
+            css.push('.form-group.label-card:has(#order_TagSearch_6c43dba4-9971-42a6-c94d-08dbe5ef7f76),.form-group.label-card:has(#order_TagSearch_6bbb6e2c-1dfc-4c89-8046-08dd04dda163) { display: none !important; }');
+            css.push('.col-md-2:has(#order_CategorySearch),.col-md-2:has(#order_PartNumberSearch) { display: none !important; }');
+            css.push('.form-group.label-card:has(#TagSearch_5f550335-12e2-418b-e158-08daa4c0721f),.form-group.label-card:has(#TagSearch_1e236238-0f22-4822-e159-08daa4c0721f),.form-group.label-card:has(#TagSearch_115ac658-0136-4f3b-e15a-08daa4c0721f),.form-group.label-card:has(#TagSearch_6a18f17d-4a4c-46cc-23c8-08daa573adc5) { display: none !important; }');
+            css.push('.col-md-2:has(#ServiceCategorySearch),.col-md-2:has(#ServiceNumberSearch),.col-md-2:has(#ServiceAltServiceNumberSearch) { display: none !important; }');
+            css.push('button.btn-danger[title="Hide All"],button.btn-warning[title="Hide"] { display: none !important; }');
+
+            css.push('#collapseAdditional.collapse.in { display: grid !important; grid-template-columns: repeat(3, 1fr); column-gap: 20px; row-gap: 10px; align-items: start; }');
+            css.push('#collapseAdditional.collapse.in > [class*="col-md-"] { width: auto !important; max-width: none !important; flex: none !important; margin-bottom: 0; }');
+            css.push('#collapseAdditional .table.lq-table-info { margin-bottom: 0; }');
+            css.push('#collapseAdditional .k-datepicker,#collapseAdditional .k-picker { width: 100% !important; }');
+            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_13__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_14__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_16__Label) { display: none !important; }');
+            css.push('#collapseAdditional > div:has(a[href*="ReportName=Optional_Report"]) { grid-column: 1 / -1; order: 1; }');
+            css.push('#collapseAdditional > br { display: none; }');
+
+            var fieldOrder = [
+                ['OrderHead_CustomFields_0__Label',2,1], ['OrderHead_CustomFields_1__Label',3,2], ['OrderHead_CustomFields_2__Label',4,3],
+                ['OrderHead_CustomFields_8__Label',5,1], ['OrderHead_CustomFields_7__Label',6,2], ['OrderHead_CustomFields_9__Label',7,3],
+                ['OrderHead_CustomFields_3__Label',8,1], ['OrderHead_CustomFields_4__Label',9,2], ['OrderHead_CustomFields_5__Label',10,3],
+                ['OrderHead_CustomFields_6__Label',11,1], ['OrderHead_CustomFields_15__Label',12,1]
+            ];
+            fieldOrder.forEach(function(f) {
+                css.push('#collapseAdditional > div:has(#' + f[0] + ') { order: ' + f[1] + '; grid-column: ' + f[2] + '; }');
+            });
+            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_10__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_11__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_12__Label) { grid-column: 1 / -1; }');
+            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_10__Label) { order: 13; }');
+            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_11__Label) { order: 14; }');
+            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_12__Label) { order: 15; }');
+            css.push('div.row:has(#HeaderInfo_Description),div.row:has(#HeaderInfo_JobNotes),div.row:has(.bom-line),div.row:has(input[value="Save"]),div.well-sm:has(a[data-target="#collapseDocs"]) { display: none !important; }');
+        }
+        staticCSS = css.join('\n');
+        return staticCSS;
+    }
+
+    function applyTechStyles() {
+        var style = document.getElementById('tech-mode-style');
+        if (!style) return;
+        if (techMode) {
+            style.textContent = buildCSS(true);
+        } else {
+            style.textContent = '';
+        }
+    }
+
+    function injectStaticStyles() {
+        if (document.getElementById('tech-kendo-style')) return;
+        var k = document.createElement('style');
+        k.id = 'tech-kendo-style';
+        k.textContent = '.k-master-row .k-table-td { vertical-align: middle !important; height: 37px; padding-top: 3px !important; padding-bottom: 3px !important; } input.form-control[id^="qtyInput_"] { height: auto !important; padding: 6px 12px; } table.table-bordered.table-condensed.small { margin-bottom: 0 !important; }';
+        document.head.appendChild(k);
+        var s = document.createElement('style');
+        s.id = 'tech-mode-style';
+        s.textContent = techMode ? buildCSS(true) : '';
+        document.head.appendChild(s);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Field freeze / unfreeze (only on techMode toggle, not every mutation)
+    // ═════════════════════════════════════════════════════════════════════════
 
     function getPickerText(field) {
-        const { pickerId, isMulti, isPlainInput, isCheckbox } = field;
-        const el = document.getElementById(pickerId);
+        var el = document.getElementById(field.pickerId);
         if (!el) return null;
-        if (isCheckbox) return el.checked ? 'Yes' : 'No';
-        if (isPlainInput) return el.value.trim() || '—';
-        if (isMulti) {
-            const multiselect = el.closest('.k-multiselect');
-            if (!multiselect) return null;
-            const chips = multiselect.querySelectorAll('.k-chip-label');
-            return chips.length ? [...chips].map(c => c.textContent.trim()).join(', ') : '—';
+        if (field.isCheckbox) return el.checked ? 'Yes' : 'No';
+        if (field.isPlainInput) return el.value.trim() || '\u2014';
+        if (field.isMulti) {
+            var ms = el.closest('.k-multiselect');
+            if (!ms) return null;
+            var chips = ms.querySelectorAll('.k-chip-label');
+            return chips.length ? Array.from(chips).map(function(c){ return c.textContent.trim() }).join(', ') : '\u2014';
         }
-        const picker = el.closest('.k-picker');
-        if (!picker) return null;
-        return picker.querySelector('.k-input-value-text')?.textContent?.trim() || null;
+        var pk = el.closest('.k-picker');
+        if (!pk) return null;
+        var vt = pk.querySelector('.k-input-value-text');
+        return vt ? vt.textContent.trim() : null;
     }
 
     function freezeFields() {
         if (!techMode) return;
-        FROZEN_FIELDS.forEach(field => {
-            const { pickerId, isPlainInput, isCheckbox } = field;
-            const input = document.getElementById(pickerId);
+        FROZEN_FIELDS.forEach(function(field) {
+            var input = document.getElementById(field.pickerId);
             if (!input) return;
-
-            let target = (isPlainInput || isCheckbox) ? input : input.closest('.k-picker, .k-multiselect');
+            var target = (field.isPlainInput || field.isCheckbox) ? input : input.closest('.k-picker, .k-multiselect');
             if (!target || target.dataset.techFrozen) return;
-
-            const text = getPickerText(field);
+            var text = getPickerText(field);
             if (text === null) return;
-
             target.dataset.techFrozen = 'true';
             target.style.display = 'none';
-
-            const span = document.createElement('span');
+            var span = document.createElement('span');
             span.className = FREEZE_CLASS;
             span.textContent = text;
             target.insertAdjacentElement('afterend', span);
@@ -135,1115 +210,680 @@
     }
 
     function unfreezeFields() {
-        document.querySelectorAll(`.${FREEZE_CLASS}`).forEach(el => el.remove());
-        document.querySelectorAll('[data-tech-frozen]').forEach(el => {
+        document.querySelectorAll('.' + FREEZE_CLASS).forEach(function(el){ el.remove() });
+        document.querySelectorAll('[data-tech-frozen]').forEach(function(el){
             el.style.display = '';
             delete el.dataset.techFrozen;
         });
     }
 
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Dropdown filter — hide non-tech shelf options
+    // ═════════════════════════════════════════════════════════════════════════
+
+    var SHELF_WHITELIST = [
+        'Work in Progress','Quality Control Shelf','Assigned',
+        'Estimate Required Shelf','Parts Required Shelf',
+        'Manual Required Shelf','Subcontract Shelf'
+    ];
+
+    function applyShelfFilter() {
+        if (!techMode) return;
+        document.querySelectorAll('#OrderHead_CustomFields_0__OptionId_listbox .k-list-item').forEach(function(li) {
+            var txt = ((li.querySelector('.k-list-item-text') || {}).textContent || '').trim();
+            li.style.display = SHELF_WHITELIST.indexOf(txt) < 0 ? 'none' : '';
+        });
+    }
+
+    var shelfBodyObs = new MutationObserver(function() {
+        var lb = document.getElementById('OrderHead_CustomFields_0__OptionId_listbox');
+        if (lb) applyShelfFilter();
+    });
+    shelfBodyObs.observe(document.body, { childList: true, subtree: true });
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Toggle tech mode
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function toggleTechMode() {
+        techMode = !techMode;
+        localStorage.setItem(STORAGE_KEY, techMode);
+
+        var track = document.getElementById('tm-mode-track');
+        var knob = document.getElementById('tm-mode-knob');
+        if (track) track.style.background = techMode ? '#28a745' : '#555';
+        if (knob) knob.style.left = techMode ? '22px' : '2px';
+
+        applyTechStyles();
+        try {
+            if (techMode) {
+                hideButtonsById();
+                hideHeaderSections();
+                hideStaticSections();
+                hideJobsContent();
+                hideBtns();
+                freezeFields();
+                renameCompleteOrderByHeader();
+                setTimeout(function(){ fixJumpLinks(); moveSerialNumberRow(); moveInspectionButton(); }, 100);
+            } else {
+                restoreButtonsById();
+                restoreHeaderSections();
+                restoreStaticSections();
+                restoreJobsContent();
+                restoreBtns();
+                unfreezeFields();
+                restoreSerialNumberRow();
+                restoreOrderLineHeaders();
+            }
+        } catch(e) { console.warn('[TechMode] toggle error:', e); }
+    }
+
+
+    function hideButtonsById() {
+        if (!techMode) return;
+        HIDDEN_BUTTON_IDS.forEach(function(id){
+            var el = document.getElementById(id);
+            if (el) el.style.setProperty('display', 'none', 'important');
+        });
+        HIDDEN_HEADER_SECTIONS.forEach(function(target){
+            var tog = document.querySelector('.accordion-toggle[data-target="' + target + '"]');
+            if (tog) {
+                var w = tog.closest('.well.well-sm');
+                if (w) w.style.display = 'none';
+            }
+        });
+    }
+
+
+    function restoreButtonsById() {
+        HIDDEN_BUTTON_IDS.forEach(function(id){
+            var el = document.getElementById(id);
+            if (el) el.style.setProperty('display', '', 'important');
+        });
+        HIDDEN_HEADER_SECTIONS.forEach(function(target){
+            var tog = document.querySelector('.accordion-toggle[data-target="' + target + '"]');
+            if (tog) {
+                var w = tog.closest('.well.well-sm');
+                if (w) w.style.display = '';
+            }
+        });
+    }
+    function hideHeaderSections() {
+        if (!techMode) return;
+        HIDDEN_HEADER_SECTIONS.forEach(function(target){
+            var el = document.querySelector(target);
+            if (el) { el.closest('.row') ? el.closest('.row').style.display = 'none' : el.style.display = 'none'; }
+        });
+    }
+    function restoreHeaderSections() {
+        HIDDEN_HEADER_SECTIONS.forEach(function(target){
+            var el = document.querySelector(target);
+            if (el) { el.closest('.row') ? el.closest('.row').style.display = '' : el.style.display = ''; }
+        });
+    }
+    function hideStaticSections() {
+        if (!techMode) return;
+        HIDDEN_STATIC_SECTIONS.forEach(function(target){
+            var tog = document.querySelector('.accordion-toggle[data-target="' + target + '"]');
+            if (tog) {
+                var w = tog.closest('.well.well-sm');
+                if (w) { w.style.display = 'none'; var c = w.closest('.col-md-12'); if (c) c.style.display = 'none'; }
+            }
+        });
+    }
+    function restoreStaticSections() {
+        HIDDEN_STATIC_SECTIONS.forEach(function(target){
+            var tog = document.querySelector('.accordion-toggle[data-target="' + target + '"]');
+            if (tog) {
+                var w = tog.closest('.well.well-sm');
+                if (w) { w.style.display = ''; var c = w.closest('.col-md-12'); if (c) c.style.display = ''; }
+            }
+        });
+    }
+    function hideJobsContent() {
+        if (!isJobsPage || !techMode) return;
+        document.querySelectorAll('.btn-group a[href="#HeaderTarget"]').forEach(function(a){
+            if (a.textContent.trim() === 'Job Details') { var g = a.closest('.btn-group'); if (g && !g.classList.contains(JOBS_HIDE_CLASS)) { g.classList.add(JOBS_HIDE_CLASS); g.style.display = 'none'; } }
+        });
+        document.querySelectorAll('a[href="#partPicker"][role="tab"], li:has(a[href="#partPicker"])').forEach(function(el){
+            if (!el.classList.contains(JOBS_HIDE_CLASS)) { el.classList.add(JOBS_HIDE_CLASS); el.style.display = 'none'; }
+        });
+        document.querySelectorAll('#partSearchContainer, #partPicker').forEach(function(el){
+            if (!el.classList.contains(JOBS_HIDE_CLASS)) { el.classList.add(JOBS_HIDE_CLASS); el.style.display = 'none'; }
+        });
+        var st = document.querySelector('a[href="#servicePicker"][role="tab"]');
+        if (st) {
+            document.querySelectorAll('.nav-tabs li').forEach(function(l){ l.classList.remove('active') });
+            st.closest('li').classList.add('active');
+            document.querySelectorAll('.tab-pane').forEach(function(p){ p.classList.remove('active','in') });
+            var sp = document.getElementById('servicePicker');
+            if (sp) sp.classList.add('active','in');
+        }
+    }
+    function restoreJobsContent() {
+        if (!isJobsPage) return;
+        document.querySelectorAll('.' + JOBS_HIDE_CLASS).forEach(function(el){ el.style.display = ''; el.classList.remove(JOBS_HIDE_CLASS) });
+    }
+    function hideBtns() {
+        if (!techMode || !isOrderPage) return;
+        document.querySelectorAll('table.table-bordered.table-condensed.small .btn-warning').forEach(function(btn){
+            if (!btn.classList.contains(HIDE_BUTTONS_CLASS)) { btn.classList.add(HIDE_BUTTONS_CLASS); btn.style.display = 'none'; }
+        });
+        document.querySelectorAll('tr.sourceLine .btn-info').forEach(function(btn){
+            if (!btn.classList.contains(HIDE_BUTTONS_CLASS)) { btn.classList.add(HIDE_BUTTONS_CLASS); btn.style.display = 'none'; }
+        });
+    }
+    function restoreBtns() {
+        document.querySelectorAll('.' + HIDE_BUTTONS_CLASS).forEach(function(el){ el.style.display = ''; el.classList.remove(HIDE_BUTTONS_CLASS) });
+    }
     function renameCompleteOrderByHeader() {
         if (!techMode) return;
-        const scope = document.getElementById('HeaderSection') || document;
-        scope.querySelectorAll('th').forEach(th => {
-            if (th.textContent.trim() === 'Complete Order By') {
-                th.textContent = 'Completed Order On';
-            }
+        (document.getElementById('HeaderSection') || document).querySelectorAll('th').forEach(function(th){
+            if (th.textContent.trim() === 'Complete Order By') th.textContent = 'Completed Order On';
         });
     }
-
-    function injectCSS() {
-        const kendoStyle = document.createElement('style');
-        kendoStyle.id = 'tech-kendo-style';
-        kendoStyle.textContent = `
-            .k-master-row .k-table-td { vertical-align: middle !important; height: 37px; padding-top: 3px !important; padding-bottom: 3px !important; }
-            input.form-control[id^="qtyInput_"] { height: auto !important; padding: 6px 12px; }
-            table.table-bordered.table-condensed.small { margin-bottom: 0 !important; }
-        `;
-        document.head.appendChild(kendoStyle);
-
-        const style = document.createElement('style');
-        style.id = 'tech-mode-style';
-        style.textContent = buildCSS();
-        document.head.appendChild(style);
+    function fixJumpLinks() {
+        if (!techMode) return;
+        document.querySelectorAll('.btn-group.btn-group-sm a[href^="#"]').forEach(function(btn){
+            btn.onclick = function(e) {
+                e.preventDefault();
+                var targetId = this.getAttribute('href').substring(1);
+                var target = document.getElementById(targetId);
+                if (!target) return;
+                var at = document.querySelector('.accordion-toggle[data-target="#' + targetId + '"]');
+                if (at && at.classList.contains('collapsed')) at.click();
+                setTimeout(function(){
+                    var r = target.getBoundingClientRect();
+                    window.scrollTo({ top: window.scrollY + r.top - 80, behavior:'smooth' });
+                }, 300);
+            };
+        });
     }
-
-    function buildCSS() {
-    if (!techMode) return '';
-
-    let css = `
-        /* Site-wide navbar cleanup */
-        #notificationArea,
-        li:has(a[href="/Search/Index"]),
-        li.dropdown:has(a[href="/Companies/Contacts/Index"]) {
-            display: none !important;
-        }
-
-        /* Warehouse menu - keep only Inventory */
-        li.dropdown:has(a[href="/Inventory"]) .dropdown-menu > li:not(:has(a[href="/Inventory"])) {
-        display: none !important;
-        }
-
-        /* Ordering menu - keep only Customer Orders */
-        li.dropdown:has(a[href="/Orders/Orders"]) .dropdown-menu > li:not(:has(a[href="/Orders/Orders"])) {
-        display: none !important;
-        }
-
-        /* Catalog menu - hide Services */
-        li.dropdown:has(a[href="/Catalog/Parts/PartList"]) a[href="/Catalog/Services/ServiceList"] {
-        display: none !important;
-        }
-    `;
-
-    if (!isTechPage) {
-        return css;
-    }
-
-    css += `
-            ${HIDDEN_HREF_FRAGMENTS.map(f => `a[href*="${f}"]`).join(',\n ')} { display: none !important; }
-
-            button[onclick*="openAdvanceSelectByOption"],
-            a.btn-success[href="#AddPartTarget"],
-            a[href*="handler=Template"],
-            button[onclick*="importWizard"],
-            button[onclick*="addPartFromSearch"],
-            button[onclick*="lockComponents"] { display: none !important; }
-
-            .row.content-group:has(a[data-target="#collapseRQs"]),
-            .row.content-group:has(a[data-target="#collapseCustomerDocs"]) { display: none !important; }
-
-            a[href="#RQsTarget"] { display: none !important; }
-
-            .btn-group.btn-group-sm:has(a[href="#HeaderTarget"]) { margin-left: -710px; }
-            .jump-target { scroll-margin-top: 100px !important; }
-
-            tr:has(a[href^="/Orders/Quotes/Edit"]) { display: none !important; }
-            tr:has(span[data-valmsg-for="OrderHead.OrderTaxes"]) { display: none !important; }
-
-            #notificationArea,
-            li:has(a[href="/Search/Index"]),
-            li.dropdown:has(a[href="/Companies/Contacts/Index"]) {
-            display: none !important;
-            }
-
-            /* Hide Add Component / Remove Components row */
-            tr:has(a.btn-primary[href="#AddPartTarget"]):has(a.btn-danger[onclick="removeComponent()"]) {
-                 display: none !important;
-            }
-
-            button[onclick*="listBoxToComment"]:not([onclick*="OrderHead_CustomFields_0__OptionId"]),
-            button[onclick*="dateBoxToComment"],
-            button[onclick*="textBoxToComment"] { display: none !important; }
-
-            /* Whole field rows */
-            ${HIDDEN_FIELD_ROW_SELECTORS.map(s => `tr:has(${s})`).join(',\n        ')} { display: none !important; }
-
-            tr:has(label[for="OrderHead_TermsAndConditions"]),
-            tr:has(label[for="OrderHead_ShippingInstructions"]) { display: none !important; }
-
-            /* ── Order line table: hide Cost/Markup/Price/Per/Subtotal columns ──
-               Data cells are matched by input ID prefixes (stable across line types).
-               Header cells are hidden via JS (hideOrderLineHeaders) since CSS has no
-               text-content selector — the function runs on init and on each toggle. */
-
-            /* Order line data cells */
-            tr.line-item > td:has(input[id^="OrderLineCostMask_"]),
-            tr.line-item > td:has(input[id^="OrderLineMarkup_"]),
-            tr.line-item > td:has(input[id^="OrderLinePriceMask_"]),
-            tr.line-item > td:has(input[id^="OrderLinePricedPerDefault_"]),
-            tr.line-item > td:has(input[id^="OrderLineSubtotal_"]) { display: none !important; }
-
-            /* Source line data cells (11-column layout) */
-            tr.sourceLine > td:has(input[id^="OrderLineSourceCost_"]),
-            tr.sourceLine > td:has(input[id^="OrderLineSourceMarkup_"]),
-            tr.sourceLine > td:has(input[id^="OrderLineSourcePrice_"]),
-            tr.sourceLine > td:has(input[id^="OrderLineSourceSubtotal_"]) { display: none !important; }
-
-            /* Source line "Per Unit" column has no input — use nth-child fallback */
-            tr.sourceLine > td:nth-child(8) { display: none !important; }
-
-            .col-md-8:has([data-target="#order_colAdvSearch"]),
-            #order_colAdvSearch { display: none !important; }
-
-            /* === NEW HIDES === */
-            #collapseAdditional > div:nth-child(10),
-            #collapseAerospace > div:nth-child(1) { display: none !important; }
-            #collapseAerospace > div:nth-child(2) > table > tbody > tr:nth-child(2) { display: none !important; }
-            #collapseAerospace > div:nth-child(2) { display: inline-block !important; width: auto !important; float: none !important; vertical-align: top !important; margin-right: 20px; }
-            #collapseAerospace > div:nth-child(3) { display: inline-block !important; width: auto !important; float: none !important; vertical-align: top !important; }
-            #collapseAerospace > div:nth-child(3) > table > tbody { display: flex !important; flex-direction: row !important; }
-            #collapseAerospace > div:nth-child(3) > table > tbody > tr { margin-right: 20px; }
-
-            tr.forex { display: none !important; }
-            a.field-history-link { display: none !important; }
-
-            .form-group.label-card:has(#order_TagSearch_6c43dba4-9971-42a6-c94d-08dbe5ef7f76),
-            .form-group.label-card:has(#order_TagSearch_6bbb6e2c-1dfc-4c89-8046-08dd04dda163) { display: none !important; }
-
-            .col-md-2:has(#order_CategorySearch),
-            .col-md-2:has(#order_PartNumberSearch) { display: none !important; }
-
-            .form-group.label-card:has(#TagSearch_5f550335-12e2-418b-e158-08daa4c0721f),
-            .form-group.label-card:has(#TagSearch_1e236238-0f22-4822-e159-08daa4c0721f),
-            .form-group.label-card:has(#TagSearch_115ac658-0136-4f3b-e15a-08daa4c0721f),
-            .form-group.label-card:has(#TagSearch_6a18f17d-4a4c-46cc-23c8-08daa573adc5) { display: none !important; }
-
-            .col-md-2:has(#ServiceCategorySearch),
-            .col-md-2:has(#ServiceNumberSearch),
-            .col-md-2:has(#ServiceAltServiceNumberSearch) { display: none !important; }
-
-            button.btn-danger[title="Hide All"],
-            button.btn-warning[title="Hide"] { display: none !important; }
-
-            /* ==================== COLLAPSE ADDITIONAL GRID ==================== */
-            #collapseAdditional.collapse.in {
-                display: grid !important;
-                grid-template-columns: repeat(3, 1fr);
-                column-gap: 20px;
-                row-gap: 10px;
-                align-items: start;
-            }
-
-            #collapseAdditional.collapse.in > [class*="col-md-"] {
-                width: auto !important;
-                max-width: none !important;
-                flex: none !important;
-                margin-bottom: 0;
-            }
-
-            #collapseAdditional .table.lq-table-info { margin-bottom: 0; }
-            #collapseAdditional .k-datepicker,
-            #collapseAdditional .k-picker { width: 100% !important; }
-
-            #collapseAdditional > div:has(#OrderHead_CustomFields_13__Label),
-            #collapseAdditional > div:has(#OrderHead_CustomFields_14__Label),
-            #collapseAdditional > div:has(#OrderHead_CustomFields_16__Label) { display: none !important; }
-
-            #collapseAdditional > div:has(a[href*="ReportName=Optional_Report"]) {
-                grid-column: 1 / -1;
-                order: 1;
-            }
-            #collapseAdditional > br { display: none; }
-
-            #collapseAdditional > div:has(#OrderHead_CustomFields_0__Label) { order: 2; grid-column: 1; }
-            #collapseAdditional > div:has(#OrderHead_CustomFields_1__Label) { order: 3; grid-column: 2; }
-            #collapseAdditional > div:has(#OrderHead_CustomFields_2__Label) { order: 4; grid-column: 3; }
-            #collapseAdditional > div:has(#OrderHead_CustomFields_8__Label) { order: 5; grid-column: 1; }
-            #collapseAdditional > div:has(#OrderHead_CustomFields_7__Label) { order: 6; grid-column: 2; }
-            #collapseAdditional > div:has(#OrderHead_CustomFields_9__Label) { order: 7; grid-column: 3; }
-            #collapseAdditional > div:has(#OrderHead_CustomFields_3__Label) { order: 8; grid-column: 1; }
-            #collapseAdditional > div:has(#OrderHead_CustomFields_4__Label) { order: 9; grid-column: 2; }
-            #collapseAdditional > div:has(#OrderHead_CustomFields_5__Label) { order: 10; grid-column: 3; }
-            #collapseAdditional > div:has(#OrderHead_CustomFields_6__Label) { order: 11; grid-column: 1; }
-
-            #collapseAdditional > div:has(#OrderHead_CustomFields_15__Label) {
-                order: 12;
-                grid-column: 1;
-            }
-
-            #collapseAdditional > div:has(#OrderHead_CustomFields_10__Label),
-            #collapseAdditional > div:has(#OrderHead_CustomFields_11__Label),
-            #collapseAdditional > div:has(#OrderHead_CustomFields_12__Label) {
-                grid-column: 1 / -1;
-            }
-            #collapseAdditional > div:has(#OrderHead_CustomFields_10__Label) { order: 13; }
-            #collapseAdditional > div:has(#OrderHead_CustomFields_11__Label) { order: 14; }
-            #collapseAdditional > div:has(#OrderHead_CustomFields_12__Label) { order: 15; }
-
-            /* ==================== JOBS PAGE HIDES ==================== */
-            div.row:has(#HeaderInfo_Description),
-            div.row:has(#HeaderInfo_JobNotes),
-            div.row:has(.bom-line),
-            div.row:has(input[value="Save"]),
-            div.well-sm:has(a[data-target="#collapseDocs"]) { display: none !important; }
-                `;
-
-        return css;
-    }
-
-    let lastCSSOutput = null;
-
-    function refreshCSS() {
-        const style = document.getElementById('tech-mode-style');
-        if (style) {
-            const newCSS = buildCSS();
-            if (newCSS !== lastCSSOutput) {
-                lastCSSOutput = newCSS;
-                style.textContent = newCSS;
-            }
-        }
-        hideOrderLineHeaders();
-    }
-
     function hideOrderLineHeaders() {
         if (!techMode) return;
-        document.querySelectorAll('tr.lq-table-header-w-options th').forEach(th => {
-            const label = th.textContent.trim();
-            if (['Cost', 'Markup', 'Price', 'Per', 'Subtotal'].includes(label)) {
-                th.style.setProperty('display', 'none', 'important');
+        document.querySelectorAll('tr.lq-table-header-w-options th').forEach(function(th){
+            if (['Cost','Markup','Price','Per','Subtotal'].indexOf(th.textContent.trim()) !== -1) {
+                th.style.setProperty('display','none','important');
             }
         });
     }
-
     function restoreOrderLineHeaders() {
-        document.querySelectorAll('tr.lq-table-header-w-options th').forEach(th => {
-            const label = th.textContent.trim();
-            if (['Cost', 'Markup', 'Price', 'Per', 'Subtotal'].includes(label)) {
+        document.querySelectorAll('tr.lq-table-header-w-options th').forEach(function(th){
+            if (['Cost','Markup','Price','Per','Subtotal'].indexOf(th.textContent.trim()) !== -1) {
                 th.style.display = '';
             }
         });
     }
 
-    function hideHeaderContent() {
+    function moveSerialNumberRow() {
         if (!techMode) return;
-        HIDDEN_BUTTON_IDS.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.style.setProperty('display', 'none', 'important');
-        });
-
-        HIDDEN_HEADER_SECTIONS.forEach(target => {
-            const toggle = document.querySelector(`.accordion-toggle[data-target="${target}"]`);
-            if (toggle) {
-                const well = toggle.closest('.well.well-sm');
-                if (well) well.style.display = 'none';
-            }
-        });
-    }
-
-    function restoreHeaderContent() {
-        HIDDEN_BUTTON_IDS.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.style.setProperty('display', '', 'important');
-        });
-
-        HIDDEN_HEADER_SECTIONS.forEach(target => {
-            const toggle = document.querySelector(`.accordion-toggle[data-target="${target}"]`);
-            if (toggle) {
-                const well = toggle.closest('.well.well-sm');
-                if (well) well.style.display = '';
-            }
-        });
-    }
-
-    function fixJumpLinks() {
-        if (!techMode) return;
-        document.querySelectorAll('.btn-group.btn-group-sm a[href^="#"]').forEach(btn => {
-            btn.onclick = function(e) {
-                e.preventDefault();
-                const targetId = this.getAttribute('href').substring(1);
-                const target = document.getElementById(targetId);
-                if (!target) return;
-
-                const accordionToggle = document.querySelector(`.accordion-toggle[data-target="#${targetId}"]`);
-                if (accordionToggle && accordionToggle.classList.contains('collapsed')) {
-                    accordionToggle.click();
-                }
-
-                setTimeout(() => {
-                    const rect = target.getBoundingClientRect();
-                    const offset = 80;
-                    window.scrollTo({ top: window.scrollY + rect.top - offset, behavior: 'smooth' });
-                }, 300);
-            };
-        });
-    }
-
-    function hideStaticSections() {
-        HIDDEN_STATIC_SECTIONS.forEach(target => {
-            const toggle = document.querySelector(`.accordion-toggle[data-target="${target}"]`);
-            if (toggle) {
-                const well = toggle.closest('.well.well-sm');
-                if (well) {
-                    well.style.display = 'none';
-                    const col = well.closest('.col-md-12');
-                    if (col) col.style.display = 'none';
-                }
-            }
-        });
-    }
-
-    function restoreStaticSections() {
-        HIDDEN_STATIC_SECTIONS.forEach(target => {
-            const toggle = document.querySelector(`.accordion-toggle[data-target="${target}"]`);
-            if (toggle) {
-                const well = toggle.closest('.well.well-sm');
-                if (well) {
-                    well.style.display = '';
-                    const col = well.closest('.col-md-12');
-                    if (col) col.style.display = '';
-                }
-            }
-        });
-    }
-
-    function observeHeader() {
-        const headerSection = document.getElementById('HeaderSection');
-        if (!headerSection) {
-            setTimeout(observeHeader, 200);
-            return;
-        }
-
-        let debounce = null;
-        const observer = new MutationObserver(() => {
-            if (!techMode) return;
-            clearTimeout(debounce);
-            debounce = setTimeout(() => {
-                isOrderPage = location.pathname.startsWith('/Orders/Orders/Edit');
-                isJobsPage = location.pathname.startsWith('/Orders/Jobs/Edit');
-                isTechPage = isOrderPage || isJobsPage;
-                refreshCSS();
-                unfreezeFields();
-                hideHeaderContent();
-                freezeFields();
-                renameCompleteOrderByHeader();
-                fixJumpLinks();
-                moveSerialNumberRow();
-                moveInspectionButton();
-                watchServiceGrid();
-                hideJobsContent();
-            }, 50);
-        });
-
-        observer.observe(headerSection, { childList: true, subtree: true });
-    }
-
-    const JOBS_HIDE_CLASS = 'tech-jobs-hidden';
-
-    function hideJobsContent() {
-        if (!isJobsPage || !techMode) return;
-        document.querySelectorAll('.btn-group a[href="#HeaderTarget"]').forEach(a => {
-            if (a.textContent.trim() === 'Job Details') {
-                const group = a.closest('.btn-group');
-                if (group && !group.classList.contains(JOBS_HIDE_CLASS)) {
-                    group.classList.add(JOBS_HIDE_CLASS);
-                    group.style.display = 'none';
-                }
-            }
-        });
-        document.querySelectorAll('a[href="#partPicker"][role="tab"], li:has(a[href="#partPicker"])').forEach(el => {
-            if (!el.classList.contains(JOBS_HIDE_CLASS)) {
-                el.classList.add(JOBS_HIDE_CLASS);
-                el.style.display = 'none';
-            }
-        });
-        document.querySelectorAll('#partSearchContainer, #partPicker').forEach(el => {
-            if (!el.classList.contains(JOBS_HIDE_CLASS)) {
-                el.classList.add(JOBS_HIDE_CLASS);
-                el.style.display = 'none';
-            }
-        });
-        const servicesTab = document.querySelector('a[href="#servicePicker"][role="tab"]');
-        if (servicesTab) {
-            document.querySelectorAll('.nav-tabs li').forEach(li => li.classList.remove('active'));
-            servicesTab.closest('li').classList.add('active');
-            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active', 'in'));
-            const sp = document.getElementById('servicePicker');
-            if (sp) sp.classList.add('active', 'in');
+        var row = document.querySelector('#collapseAerospace tr:has(#AerospaceHead_ComponentId)');
+        if (!row) return;
+        var cells = row.children;
+        if (cells.length < 4) return;
+        var existing = row.parentNode.querySelector('tr[data-serial-clone]');
+        if (existing) { existing.remove(); cells[2].style.display = ''; cells[3].style.display = ''; }
+        var newRow = document.createElement('tr');
+        newRow.dataset.serialClone = 'true';
+        var snTh = cells[2].cloneNode(true);
+        var snTd = cells[3].cloneNode(true);
+        newRow.appendChild(snTh); newRow.appendChild(snTd);
+        row.parentNode.insertBefore(newRow, row.nextSibling);
+        cells[2].style.display = 'none'; cells[3].style.display = 'none';
+        snTd.style.maxWidth = '350px';
+        var snInput = snTd.querySelector('input');
+        if (snInput && !snInput.dataset.techFrozen) {
+            var val = snInput.value || snInput.textContent || '\u2014';
+            snInput.style.display = 'none';
+            snInput.dataset.techFrozen = 'true';
+            var overlay = document.createElement('span');
+            overlay.className = FREEZE_CLASS;
+            overlay.textContent = val;
+            snInput.insertAdjacentElement('afterend', overlay);
         }
     }
-
-    function restoreJobsContent() {
-        if (!isJobsPage) return;
-        document.querySelectorAll(`.${JOBS_HIDE_CLASS}`).forEach(el => {
-            el.style.display = '';
-            el.classList.remove(JOBS_HIDE_CLASS);
-        });
+    function restoreSerialNumberRow() {
+        var existing = document.querySelector('tr[data-serial-clone]');
+        if (!existing) return;
+        var prevRow = existing.previousElementSibling;
+        if (prevRow && prevRow.children.length >= 4) { prevRow.children[2].style.display = ''; prevRow.children[3].style.display = ''; }
+        existing.remove();
+    }
+    function moveInspectionButton() {
+        var group = document.querySelector('.btn-group.btn-group-sm:has(a[href="#HeaderTarget"])');
+        if (!group) return;
+        var parent = group.parentNode;
+        var btn = document.querySelector('a.btn-info[href*="Optional_Report7"]:not([data-tech-inspected])');
+        if (!btn) return;
+        parent.querySelectorAll('a[data-tech-inspected]').forEach(function(el){ el.remove() });
+        btn.dataset.techInspected = 'true';
+        btn.className = 'btn btn-default btn-sm';
+        btn.style.marginLeft = '8px';
+        btn.style.display = '';
+        parent.insertBefore(btn, group.nextSibling);
     }
 
-    const HIDE_BUTTONS_CLASS = 'tech-buttons-hidden';
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Inline notes — runs once per full mutation cycle, no 2s poll
+    // ═════════════════════════════════════════════════════════════════════════
 
-    function hideButtons() {
-if (!techMode || !isOrderPage) return;        // Price guide button in the condensed-label table's button column
-        document.querySelectorAll('table.table-bordered.table-condensed.small .btn-warning').forEach(btn => {
-            if (!btn.classList.contains(HIDE_BUTTONS_CLASS)) {
-                btn.classList.add(HIDE_BUTTONS_CLASS);
-                btn.style.display = 'none';
+    function getExistingNoteText(lineId) {
+        var row = document.getElementById('OrderLineNotes_' + lineId);
+        if (!row) return '';
+        var span = row.querySelector('span');
+        return span ? span.textContent.trim() : '';
+    }
+    function addInlineNoteRow(lineRow) {
+        var lineId = lineRow.id.replace('OrderLine_', '');
+        if (!lineId || lineRow.dataset.techNoteAdded) return;
+        var textarea = document.createElement('textarea');
+        textarea.className = 'form-control';
+        textarea.rows = 1;
+        textarea.style.cssText = 'width:65%;max-width:400px;display:inline-block;vertical-align:middle;resize:vertical;';
+        textarea.placeholder = 'Add note / Missing PO #';
+        textarea.value = getExistingNoteText(lineId);
+        var saveBtn = document.createElement('button');
+        saveBtn.type = 'button';
+        saveBtn.className = 'btn btn-sm btn-primary';
+        saveBtn.style.marginLeft = '6px';
+        saveBtn.textContent = 'Save Note';
+        saveBtn.onclick = function(){ saveInlineNote(lineId, textarea, saveBtn); };
+        textarea.onkeydown = function(e){
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveBtn.click(); }
+        };
+        var labelTable = lineRow.querySelector('.condensedLabel');
+        if (labelTable) {
+            var tbl = labelTable.closest('table.table-bordered.table-condensed.small');
+            if (tbl) {
+                var tb = tbl.querySelector('tbody') || tbl;
+                var noteRow = document.createElement('tr');
+                noteRow.className = INLINE_NOTE_CLASS;
+                noteRow.dataset.lineId = lineId;
+                noteRow.dataset.placement = 'source-area';
+                var td = document.createElement('td');
+                td.colSpan = 2;
+                td.style.cssText = 'padding:0px 8px;line-height:1';
+                td.appendChild(textarea); td.appendChild(saveBtn);
+                noteRow.appendChild(td);
+                tb.appendChild(noteRow);
+                lineRow.dataset.techNoteAdded = 'true';
+                return;
+            }
+        }
+        var sourceArea = document.getElementById('OrderLineSourceArea_' + lineId);
+        if (sourceArea) {
+            var contentTd = sourceArea.querySelector('td');
+            if (contentTd) {
+                var noteDiv = document.createElement('div');
+                noteDiv.className = INLINE_NOTE_CLASS;
+                noteDiv.dataset.lineId = lineId;
+                noteDiv.dataset.placement = 'source-area';
+                noteDiv.style.cssText = 'padding:0px 8px;border-top:1px solid #ddd';
+                noteDiv.appendChild(textarea); noteDiv.appendChild(saveBtn);
+                contentTd.appendChild(noteDiv);
+                lineRow.dataset.techNoteAdded = 'true';
+                return;
+            }
+        }
+        var colCount = lineRow.children.length;
+        var newRow = document.createElement('tr');
+        newRow.className = INLINE_NOTE_CLASS;
+        newRow.dataset.lineId = lineId;
+        var tdC = document.createElement('td');
+        tdC.colSpan = colCount;
+        tdC.style.padding = '0px 8px';
+        tdC.appendChild(textarea); tdC.appendChild(saveBtn);
+        newRow.appendChild(tdC);
+        lineRow.parentNode.insertBefore(newRow, lineRow.nextSibling);
+        lineRow.dataset.techNoteAdded = 'true';
+    }
+    function repositionNoteRow(lineId) {
+        var noteRow = document.querySelector('.' + INLINE_NOTE_CLASS + '[data-line-id="' + lineId + '"]');
+        if (!noteRow) return;
+        var sa = document.getElementById('OrderLineSourceArea_' + lineId);
+        if (sa && sa.parentNode === noteRow.parentNode && (sa.compareDocumentPosition(noteRow) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+            sa.parentNode.insertBefore(noteRow, sa);
+        }
+    }
+    function updateDisplayedNote(lineId, text) {
+        var notesRow = document.getElementById('OrderLineNotes_' + lineId);
+        if (notesRow) {
+            var span = notesRow.querySelector('span[style*="white-space"]');
+            if (span) span.textContent = text;
+        } else {
+            var lineRow = document.getElementById('OrderLine_' + lineId);
+            if (lineRow && lineRow.parentNode) {
+                var newRow = document.createElement('tr');
+                newRow.id = 'OrderLineNotes_' + lineId;
+                newRow.className = 'line-notes group_' + lineId;
+                var td1 = document.createElement('td');
+                var td2 = document.createElement('td');
+                td2.colSpan = 8;
+                var span = document.createElement('span');
+                span.style.whiteSpace = 'pre-line';
+                span.textContent = text;
+                td2.appendChild(span);
+                newRow.appendChild(td1); newRow.appendChild(td2);
+                var sa = document.getElementById('OrderLineSourceArea_' + lineId);
+                if (sa && sa.parentNode === lineRow.parentNode) { lineRow.parentNode.insertBefore(newRow, sa); }
+                else { lineRow.parentNode.insertBefore(newRow, lineRow.nextSibling); }
+            }
+        }
+    }
+    function saveInlineNote(lineId, textarea, saveBtn) {
+        var noteText = textarea.value;
+        var origLabel = saveBtn.textContent;
+        saveBtn.textContent = 'Saving...';
+        saveBtn.disabled = true;
+        if (techAjaxSaveUrl && techAjaxSaveData && techLineIdFieldName) {
+            directSave(lineId, noteText, saveBtn, origLabel);
+        } else {
+            saveViaPopup(lineId, noteText, saveBtn, origLabel);
+        }
+    }
+    function directSave(lineId, noteText, saveBtn, origLabel) {
+        var data = techAjaxSaveData;
+        var url = techAjaxSaveUrl;
+        data = data.replace(/(^|&)Note=[^&]*/, '$1Note=' + encodeURIComponent(noteText));
+        var escField = techLineIdFieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var origMatch = data.match(new RegExp('(?:^|&)' + escField + '=([^&]+)'));
+        var origLineId = origMatch ? decodeURIComponent(origMatch[1]) : null;
+        if (origLineId && origLineId !== lineId) {
+            var escOrig = origLineId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            data = data.replace(new RegExp(escOrig, 'g'), lineId);
+            url = url.replace(new RegExp(escOrig, 'g'), lineId);
+        }
+        $.ajax({
+            url: url, type: 'POST', data: data, processData: false,
+            contentType: 'application/x-www-form-urlencoded; charset=UTF-8',
+            success: function(){
+                closeWindow();
+                updateDisplayedNote(lineId, noteText);
+                saveBtn.textContent = 'Saved \u2713';
+                saveBtn.disabled = false;
+                setTimeout(function(){ saveBtn.textContent = origLabel; }, 1500);
+                setTimeout(function(){ repositionNoteRow(lineId) }, 200);
+            },
+            error: function(){
+                techAjaxSaveUrl = null; techAjaxSaveData = null; techLineIdFieldName = null;
+                saveBtn.textContent = 'Saving...';
+                saveViaPopup(lineId, noteText, saveBtn, origLabel);
             }
         });
-        // Info button on source lines
-        document.querySelectorAll('tr.sourceLine .btn-info').forEach(btn => {
-            if (!btn.classList.contains(HIDE_BUTTONS_CLASS)) {
-                btn.classList.add(HIDE_BUTTONS_CLASS);
-                btn.style.display = 'none';
+    }
+    function saveViaPopup(lineId, noteText, saveBtn, origLabel) {
+        var hider = document.createElement('style');
+        hider.id = 'tech-popup-hider';
+        hider.textContent = '.k-window, .k-overlay { display: none !important; }';
+        document.head.appendChild(hider);
+        var origClose = window.closeWindow;
+        window.closeWindow = function(){
+            document.getElementById('tech-popup-hider')?.remove();
+            updateDisplayedNote(lineId, noteText);
+            window.closeWindow = origClose;
+            return origClose.apply(this, arguments);
+        };
+        var captureDone = false;
+        var prefilter = function(options){
+            if (captureDone) return;
+            if (options.type && options.type.toUpperCase() === 'POST' && options.url) {
+                techAjaxSaveUrl = options.url;
+                techAjaxSaveData = typeof options.data === 'string' ? options.data : (options.data && typeof options.data === 'object' ? $.param(options.data) : null);
+                captureDone = true;
             }
+        };
+        $.ajaxPrefilter(prefilter);
+        openLineDetails(lineId);
+        var tryFill = function(attemptsLeft){
+            var noteField = document.getElementById('Note');
+            var dialog = document.querySelector('.k-window');
+            if (!noteField || !dialog) {
+                if (attemptsLeft <= 0) { saveBtn.textContent = 'Failed'; saveBtn.disabled = false; document.getElementById('tech-popup-hider')?.remove(); return; }
+                setTimeout(function(){ tryFill(attemptsLeft - 1); }, 100);
+                return;
+            }
+            if (!techLineIdFieldName) {
+                document.querySelectorAll('#orderLineDetailsForm input, #orderLineDetailsForm select').forEach(function(el){
+                    if (el.name && !el.disabled && String(el.value) === String(lineId)) { techLineIdFieldName = el.name; }
+                });
+            }
+            noteField.value = noteText;
+            var popupSaveBtn = document.querySelector('#orderLineDetailsForm input[type="button"][value="Save"]');
+            if (!popupSaveBtn) { saveBtn.textContent = 'Failed'; saveBtn.disabled = false; closeWindow(); document.getElementById('tech-popup-hider')?.remove(); return; }
+            popupSaveBtn.click();
+            document.getElementById('tech-popup-hider')?.remove();
+            setTimeout(function(){ closeWindow(); repositionNoteRow(lineId); saveBtn.textContent = 'Saved \u2713'; saveBtn.disabled = false; setTimeout(function(){ saveBtn.textContent = origLabel; }, 1500); }, 2000);
+        };
+        setTimeout(function(){ tryFill(15); }, 150);
+    }
+    function addInlineNotesToAllLines() {
+        if (!isOrderPage) return;
+        document.querySelectorAll('tr.line-item[id^="OrderLine_"]').forEach(function(lineRow){
+            var lineId = lineRow.id.replace('OrderLine_', '');
+            if (!lineId) return;
+            var existing = document.querySelector('.' + INLINE_NOTE_CLASS + '[data-line-id="' + lineId + '"]');
+            if (existing) {
+                if (existing.dataset.placement !== 'source-area') { existing.remove(); delete lineRow.dataset.techNoteAdded; }
+                else { lineRow.dataset.techNoteAdded = 'true'; return; }
+            }
+            if (!lineId || lineRow.dataset.techNoteAdded) return;
+            addInlineNoteRow(lineRow);
         });
     }
 
-    function restoreButtons() {
-        document.querySelectorAll(`.${HIDE_BUTTONS_CLASS}`).forEach(el => {
-            el.style.display = '';
-            el.classList.remove(HIDE_BUTTONS_CLASS);
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Service grid helpers
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function preserveServiceGridColWidths() {
+        var grid = document.querySelector('#serviceGrid');
+        if (!grid) return;
+        grid.querySelectorAll('colgroup > col').forEach(function(col, i){
+            if (col.style.width && /^\d+px$/.test(col.style.width) && parseInt(col.style.width) >= 100) return;
+            var headers = grid.querySelectorAll('th[data-title]');
+            var th = headers[i];
+            if (!th) return;
+            var title = th.getAttribute('data-title');
+            if (title === 'Add' || title === 'Add Component') col.style.width = '120px';
         });
     }
-
-    const PINNED_SERVICE_NUM = 'S-100217';
-    let pinnedServiceCaptured = false;
-
     function captureAndPinService() {
         if (!isOrderPage || pinnedServiceCaptured) return;
         if (document.querySelector('#tech-pinned-service')) return;
-        const grid = document.querySelector('#serviceGrid');
+        var grid = document.querySelector('#serviceGrid');
         if (!grid) return;
-        const tbody = grid.querySelector('tbody');
-        if (!tbody) return;
-        const rows = tbody.querySelectorAll('tr[role="row"]');
-        for (const row of rows) {
-            if (row.textContent.includes(PINNED_SERVICE_NUM)) {
-                pinRow(row, grid);
+        var rows = (grid.querySelector('tbody') || grid).querySelectorAll('tr[role="row"]');
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].textContent.includes(PINNED_SERVICE_NUM)) {
+                pinRow(rows[i], grid);
                 return;
             }
         }
     }
-
     function pinRow(row, grid) {
-        const clone = row.cloneNode(true);
-        const checkbox = clone.querySelector('input[type="checkbox"]');
-        if (checkbox) {
-            checkbox.addEventListener('change', function () {
-                const realRows = grid.querySelectorAll('tbody tr[role="row"]');
-                for (const r of realRows) {
-                    const cb = r.querySelector('input[type="checkbox"]');
-                    if (cb && r.textContent.includes(PINNED_SERVICE_NUM)) {
-                        cb.checked = this.checked;
-                        cb.dispatchEvent(new Event('change', { bubbles: true }));
-                        break;
-                    }
-                }
+        var clone = row.cloneNode(true);
+        var cb = clone.querySelector('input[type="checkbox"]');
+        if (cb) {
+            cb.addEventListener('change', function(){
+                grid.querySelectorAll('tbody tr[role="row"]').forEach(function(r){
+                    var c = r.querySelector('input[type="checkbox"]');
+                    if (c && r.textContent.includes(PINNED_SERVICE_NUM)) { c.checked = this.checked; c.dispatchEvent(new Event('change',{bubbles:true})); }
+                }.bind(this));
             });
         }
-        const section = document.createElement('div');
+        var section = document.createElement('div');
         section.id = 'tech-pinned-service';
-        section.style.cssText = 'margin-bottom: 8px; border: 1px solid #4CAF50; border-radius: 4px; background: #f1f9f1;';
-        clone.querySelectorAll('input.form-control').forEach(inp => {
-            inp.style.cssText = 'width: 70px;';
-        });
-        const table = document.createElement('table');
-        table.style.cssText = 'width: 100%; font-size: 13px; border-collapse: collapse;';
+        section.style.cssText = 'margin-bottom:8px;border:1px solid #4CAF50;border-radius:4px;background:#f1f9f1';
+        clone.querySelectorAll('input.form-control').forEach(function(inp){ inp.style.cssText = 'width:70px' });
+        var table = document.createElement('table');
+        table.style.cssText = 'width:100%;font-size:13px;border-collapse:collapse';
         table.className = 'table table-bordered';
-        const cg = grid.querySelector('colgroup');
+        var cg = grid.querySelector('colgroup');
         if (cg) table.appendChild(cg.cloneNode(true));
-        const thead = grid.querySelector('thead');
+        var thead = grid.querySelector('thead');
         if (thead) {
-            const hr = thead.querySelector('tr');
-            if (hr) {
-                const hd = document.createElement('thead');
-                hd.appendChild(hr.cloneNode(true));
-                table.appendChild(hd);
-            }
+            var hr = thead.querySelector('tr');
+            if (hr) { var hd = document.createElement('thead'); hd.appendChild(hr.cloneNode(true)); table.appendChild(hd); }
         }
-        const tb2 = document.createElement('tbody');
+        var tb2 = document.createElement('tbody');
         tb2.appendChild(clone);
         table.appendChild(tb2);
         section.appendChild(table);
         grid.parentNode.insertBefore(section, grid);
         pinnedServiceCaptured = true;
     }
-
-    function preserveServiceGridColWidths() {
-        const grid = document.querySelector('#serviceGrid');
-        if (!grid) return;
-        const cols = grid.querySelectorAll('colgroup > col');
-        const visibleHeaders = Array.from(grid.querySelectorAll('th[data-title]'))
-            .filter(th => th.offsetWidth > 0);
-        cols.forEach((col, i) => {
-            if (col.style.width && /^\d+px$/.test(col.style.width) && parseInt(col.style.width) >= 100) return;
-            const th = visibleHeaders[i];
-            if (!th) return;
-            const title = th.getAttribute('data-title');
-            if (title === 'Add' || title === 'Add Component') {
-                col.style.width = '120px';
-            }
-        });
-    }
-
     function watchServiceGrid() {
         if (!isOrderPage) return;
         preserveServiceGridColWidths();
         captureAndPinService();
         if (pinnedServiceCaptured) return;
-        const grid = document.querySelector('#serviceGrid');
-        if (!grid) return;
-        if (grid.dataset.techWatchSetup) return;
+        var grid = document.querySelector('#serviceGrid');
+        if (!grid || grid.dataset.techWatchSetup) return;
         grid.dataset.techWatchSetup = '1';
-
-        try {
-            const kg = $(grid).data('kendoGrid');
-            if (kg && kg.dataSource) {
-                // Always preserve column widths on every dataBound
-                kg.bind('dataBound', function preserveOnDataBound() {
-                    preserveServiceGridColWidths();
-                });
-                kg.dataSource.filter({ field: 'Description', operator: 'contains', value: 'Parts' });
-                const onBound = function () {
-                    if (pinnedServiceCaptured) return;
-                    captureAndPinService();
-                    if (pinnedServiceCaptured) {
-                        kg.unbind('dataBound', onBound);
-                        kg.dataSource.filter(null);
-                    }
-                };
-                kg.bind('dataBound', onBound);
-            }
-        } catch (e) {}
-        const obs = new MutationObserver(() => {
+        var kg;
+        try { kg = $(grid).data('kendoGrid'); } catch(e){}
+        if (kg && kg.dataSource) {
+            kg.bind('dataBound', function(){ preserveServiceGridColWidths(); });
+            kg.dataSource.filter({ field:'Description', operator:'contains', value:'Parts' });
+            var onBound = function(){
+                if (pinnedServiceCaptured) return;
+                captureAndPinService();
+                if (pinnedServiceCaptured) { kg.unbind('dataBound', onBound); kg.dataSource.filter(null); }
+            };
+            kg.bind('dataBound', onBound);
+        }
+        var obs = new MutationObserver(function(){
             if (!pinnedServiceCaptured) {
-                setTimeout(() => {
+                setTimeout(function(){
                     captureAndPinService();
-                    if (pinnedServiceCaptured) {
-                        obs.disconnect();
-                        try {
-                            const kg = $(grid).data('kendoGrid');
-                            if (kg) kg.dataSource.filter(null);
-                        } catch (e) {}
-                    }
+                    if (pinnedServiceCaptured) { obs.disconnect(); try { $(grid).data('kendoGrid').dataSource.filter(null); } catch(e){} }
                 }, 50);
             }
         });
-        obs.observe(grid, { childList: true, subtree: true });
+        obs.observe(grid, { childList:true, subtree:true });
     }
 
-    let isOrderPage = location.pathname.startsWith('/Orders/Orders/Edit');
-    let isJobsPage = location.pathname.startsWith('/Orders/Jobs/Edit');
-    let isTechPage = isOrderPage || isJobsPage;
+    // ═════════════════════════════════════════════════════════════════════════
+    //  MutationObserver — uses TechShared observer manager or falls back
+    // ═════════════════════════════════════════════════════════════════════════
 
-    function moveSerialNumberRow() {
-        if (!techMode) return;
-        const row = document.querySelector('#collapseAerospace tr:has(#AerospaceHead_ComponentId)');
-        if (!row) return;
-        const cells = row.children;
-        if (cells.length < 4) return;
+    function runAllUpdates() {
+        isOrderPage = location.pathname.startsWith('/Orders/Orders/Edit');
+        isJobsPage = location.pathname.startsWith('/Orders/Jobs/Edit');
+        isTechPage = isOrderPage || isJobsPage;
 
-        const existing = row.parentNode.querySelector('tr[data-serial-clone]');
-        if (existing) {
-            existing.remove();
-            cells[2].style.display = '';
-            cells[3].style.display = '';
+        if (techMode) {
+            unfreezeFields(); hideButtonsById(); hideHeaderSections();
+            hideJobsContent(); freezeFields(); renameCompleteOrderByHeader();
+            fixJumpLinks(); moveSerialNumberRow(); moveInspectionButton();
+            hideBtns(); hideOrderLineHeaders();
         }
-
-        const newRow = document.createElement('tr');
-        newRow.dataset.serialClone = 'true';
-        const snTh = cells[2].cloneNode(true);
-        const snTd = cells[3].cloneNode(true);
-        newRow.appendChild(snTh);
-        newRow.appendChild(snTd);
-        row.parentNode.insertBefore(newRow, row.nextSibling);
-        cells[2].style.display = 'none';
-        cells[3].style.display = 'none';
-
-        snTd.style.maxWidth = '350px';
-
-        const snInput = snTd.querySelector('input');
-        if (snInput && !snInput.dataset.techFrozen) {
-            const val = snInput.value || snInput.textContent || '—';
-            snInput.style.display = 'none';
-            snInput.dataset.techFrozen = 'true';
-            const overlay = document.createElement('span');
-            overlay.className = FREEZE_CLASS;
-            overlay.textContent = val;
-            snInput.insertAdjacentElement('afterend', overlay);
-        }
-    }
-
-    function restoreSerialNumberRow() {
-        const existing = document.querySelector('tr[data-serial-clone]');
-        if (!existing) return;
-        const prevRow = existing.previousElementSibling;
-        if (prevRow && prevRow.children.length >= 4) {
-            prevRow.children[2].style.display = '';
-            prevRow.children[3].style.display = '';
-        }
-        existing.remove();
-    }
-
-    function moveInspectionButton() {
-        const group = document.querySelector('.btn-group.btn-group-sm:has(a[href="#HeaderTarget"])');
-        if (!group) return;
-        const targetParent = group.parentNode;
-        const btn = document.querySelector('a.btn-info[href*="Optional_Report7"]:not([data-tech-inspected])');
-        if (!btn) return;
-        targetParent.querySelectorAll('a[data-tech-inspected]').forEach(el => el.remove());
-        btn.dataset.techInspected = 'true';
-        btn.className = 'btn btn-default btn-sm';
-        btn.style.marginLeft = '8px';
-        targetParent.insertBefore(btn, group.nextSibling);
-    }
-
-    /* ============================================================
-       INLINE LINE NOTES — always on, independent of Tech Mode toggle
-       ============================================================ */
-
-    const INLINE_NOTE_CLASS = 'tech-inline-note-row';
-
-    function getExistingNoteText(lineId) {
-        const row = document.getElementById('OrderLineNotes_' + lineId);
-        if (!row) return '';
-        const span = row.querySelector('span');
-        return span ? span.textContent.trim() : '';
-    }
-
-    function addInlineNoteRow(lineRow) {
-        const lineId = lineRow.id.replace('OrderLine_', '');
-        if (!lineId || lineRow.dataset.techNoteAdded) return;
-
-        const textarea = document.createElement('textarea');
-        textarea.className = 'form-control';
-        textarea.rows = 1;
-        textarea.style.cssText = 'width: 65%; max-width: 400px; display: inline-block; vertical-align: middle; resize: vertical;';
-        textarea.placeholder = 'Add note / Missing PO #';
-        textarea.value = getExistingNoteText(lineId);
-        textarea.onkeydown = (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                saveBtn.click();
-            }
-        };
-
-        const saveBtn = document.createElement('button');
-        saveBtn.type = 'button';
-        saveBtn.className = 'btn btn-sm btn-primary';
-        saveBtn.style.marginLeft = '6px';
-        saveBtn.textContent = 'Save Note';
-        saveBtn.onclick = () => saveInlineNote(lineId, textarea, saveBtn);
-
-        // Try to insert inside the order line's condensed-label table
-        // (the table.table-bordered.table-condensed.small in the second <td>
-        // of the order line — NOT inside OrderLineSourceArea).
-        const labelTable = lineRow.querySelector('.condensedLabel')?.closest('table.table-bordered.table-condensed.small');
-        if (labelTable) {
-            const tbody = labelTable.querySelector('tbody') || labelTable;
-            const noteRow = document.createElement('tr');
-            noteRow.className = INLINE_NOTE_CLASS;
-            noteRow.dataset.lineId = lineId;
-            noteRow.dataset.placement = 'source-area';
-            const td = document.createElement('td');
-            td.colSpan = 2;
-            td.style.padding = '0px 8px';
-            td.style.lineHeight = '1';
-            td.appendChild(textarea);
-            td.appendChild(saveBtn);
-            noteRow.appendChild(td);
-            tbody.appendChild(noteRow);
-            lineRow.dataset.techNoteAdded = 'true';
-            return;
-        }
-        // Fallback: insert as a <div> inside the source area's content <td>
-        const sourceArea = document.getElementById('OrderLineSourceArea_' + lineId);
-        if (sourceArea) {
-            const contentTd = sourceArea.querySelector('td');
-            if (contentTd) {
-                const noteDiv = document.createElement('div');
-                noteDiv.className = INLINE_NOTE_CLASS;
-                noteDiv.dataset.lineId = lineId;
-                noteDiv.dataset.placement = 'source-area';
-                noteDiv.style.cssText = 'padding: 0px 8px; border-top: 1px solid #ddd;';
-                noteDiv.appendChild(textarea);
-                noteDiv.appendChild(saveBtn);
-                contentTd.appendChild(noteDiv);
-                lineRow.dataset.techNoteAdded = 'true';
-                return;
-            }
-        }
-        // Last resort: insert as a separate <tr> after the line row
-        const colCount = lineRow.children.length;
-        const newRow = document.createElement('tr');
-        newRow.className = INLINE_NOTE_CLASS;
-        newRow.dataset.lineId = lineId;
-        const tdC = document.createElement('td');
-        tdC.colSpan = colCount;
-                tdC.style.padding = '0px 8px';
-        tdC.appendChild(textarea);
-        tdC.appendChild(saveBtn);
-        newRow.appendChild(tdC);
-        lineRow.parentNode.insertBefore(newRow, lineRow.nextSibling);
-        lineRow.dataset.techNoteAdded = 'true';
-    }
-
-    function repositionNoteRow(lineId) {
-        const noteRow = document.querySelector(`.${INLINE_NOTE_CLASS}[data-line-id="${lineId}"]`);
-        if (!noteRow) return;
-        const sourceArea = document.getElementById('OrderLineSourceArea_' + lineId);
-        if (!sourceArea || sourceArea.parentNode !== noteRow.parentNode) return;
-        // If note row is after the source area, move it before
-        if (sourceArea.compareDocumentPosition(noteRow) & Node.DOCUMENT_POSITION_FOLLOWING) {
-            sourceArea.parentNode.insertBefore(noteRow, sourceArea);
-        }
-    }
-
-    // Cache for direct AJAX saves — captures the real URL and data from the first popup save
-    let techAjaxSaveUrl = null;
-    let techAjaxSaveData = null;
-    let techLineIdFieldName = null;
-
-    function updateDisplayedNote(lineId, text) {
-        const notesRow = document.getElementById('OrderLineNotes_' + lineId);
-        if (notesRow) {
-            const span = notesRow.querySelector('span[style*="white-space"]');
-            if (span) span.textContent = text;
-        } else {
-            // Create a new notes row (server doesn't send it until the first save)
-            const lineRow = document.getElementById('OrderLine_' + lineId);
-            if (lineRow && lineRow.parentNode) {
-                const newRow = document.createElement('tr');
-                newRow.id = 'OrderLineNotes_' + lineId;
-                newRow.className = 'line-notes group_' + lineId;
-                const td1 = document.createElement('td');
-                const td2 = document.createElement('td');
-                td2.colSpan = 8;
-                const span = document.createElement('span');
-                span.style.whiteSpace = 'pre-line';
-                span.textContent = text;
-                td2.appendChild(span);
-                newRow.appendChild(td1);
-                newRow.appendChild(td2);
-                const sourceArea = document.getElementById('OrderLineSourceArea_' + lineId);
-                if (sourceArea && sourceArea.parentNode === lineRow.parentNode) {
-                    lineRow.parentNode.insertBefore(newRow, sourceArea);
-                } else {
-                    lineRow.parentNode.insertBefore(newRow, lineRow.nextSibling);
-                }
-            }
-        }
-    }
-
-function preDiscoverFormAction() {}
-
-    function saveInlineNote(lineId, textarea, saveBtn) {
-        const noteText = textarea.value;
-        const originalLabel = saveBtn.textContent;
-        saveBtn.textContent = 'Saving...';
-        saveBtn.disabled = true;
-
-        if (techAjaxSaveUrl && techAjaxSaveData && techLineIdFieldName) {
-            directSave(lineId, noteText, saveBtn, originalLabel);
-        } else {
-            saveViaPopup(lineId, noteText, saveBtn, originalLabel);
-        }
-    }
-
-    function directSave(lineId, noteText, saveBtn, originalLabel) {
-        let data = techAjaxSaveData;
-        let url = techAjaxSaveUrl;
-        data = data.replace(/(^|&)Note=[^&]*/, '$1Note=' + encodeURIComponent(noteText));
-        const escapedField = techLineIdFieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const origMatch = data.match(new RegExp('(?:^|&)' + escapedField + '=([^&]+)'));
-        const origLineId = origMatch ? decodeURIComponent(origMatch[1]) : null;
-        if (origLineId && origLineId !== lineId) {
-            const escaped = origLineId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            data = data.replace(new RegExp(escaped, 'g'), lineId);
-            url = url.replace(new RegExp(escaped, 'g'), lineId);
-        }
-
-        $.ajax({
-            url: url,
-            type: 'POST',
-            data: data,
-            processData: false,
-            contentType: 'application/x-www-form-urlencoded; charset=UTF-8',
-            success: function () {
-                // Note: deliberately NOT calling refreshLines() here —
-                // it blurs the table and causes visual jumps. The note
-                // is already saved on the server, and our inline textarea
-                // already has the correct text. The next poll or
-                // refreshLines() from the server will sync any other data.
-                closeWindow();
-
-                // Update the displayed note text in the OrderLineNotes row
-                updateDisplayedNote(lineId, noteText);
-
-                saveBtn.textContent = 'Saved ✓';
-                saveBtn.disabled = false;
-                setTimeout(() => { saveBtn.textContent = originalLabel; }, 1500);
-                setTimeout(() => repositionNoteRow(lineId), 200);
-                setTimeout(() => repositionNoteRow(lineId), 500);
-                setTimeout(() => repositionNoteRow(lineId), 1000);
-            },
-            error: function () {
-                // Reset cache so the next attempt re-discovers via the popup
-                techAjaxSaveUrl = null;
-                techAjaxSaveData = null;
-                techLineIdFieldName = null;
-                // Auto-retry via popup — the guess was wrong, let the real
-                // discovery run so subsequent saves are instant
-                saveBtn.textContent = 'Saving...';
-                saveViaPopup(lineId, noteText, saveBtn, originalLabel);
-            }
-        });
-    }
-
-    function saveViaPopup(lineId, noteText, saveBtn, originalLabel) {
-        const hider = document.createElement('style');
-        hider.id = 'tech-popup-hider';
-        hider.textContent = '.k-window, .k-overlay { display: none !important; }';
-        document.head.appendChild(hider);
-
-        const origClose = window.closeWindow;
-        window.closeWindow = function () {
-            document.getElementById('tech-popup-hider')?.remove();
-            updateDisplayedNote(lineId, noteText);
-            window.closeWindow = origClose;
-            return origClose.apply(this, arguments);
-        };
-
-        // Intercept the AJAX POST from postOrderLineDetails to capture the correct save URL
-        let captureDone = false;
-        const prefilter = function (options) {
-            if (captureDone) return;
-            if (options.type && options.type.toUpperCase() === 'POST' && options.url) {
-                techAjaxSaveUrl = options.url;
-                if (typeof options.data === 'string') {
-                    techAjaxSaveData = options.data;
-                } else if (options.data && typeof options.data === 'object' && !(options.data instanceof FormData)) {
-                    techAjaxSaveData = $.param(options.data);
-                }
-                captureDone = true;
-            }
-        };
-        $.ajaxPrefilter(prefilter);
-
-        openLineDetails(lineId);
-
-        const tryFill = (attemptsLeft) => {
-            const noteField = document.getElementById('Note');
-            const dialog = document.querySelector('.k-window');
-
-            if (!noteField || !dialog) {
-                if (attemptsLeft <= 0) {
-                    saveBtn.textContent = 'Failed — try again';
-                    saveBtn.disabled = false;
-                    document.getElementById('tech-popup-hider')?.remove();
-                    return;
-                }
-                setTimeout(() => tryFill(attemptsLeft - 1), 100);
-                return;
-            }
-
-            if (!techLineIdFieldName) {
-                const inputs = document.querySelectorAll('#orderLineDetailsForm input, #orderLineDetailsForm select');
-                for (const el of inputs) {
-                    if (el.name && !el.disabled && String(el.value) === String(lineId)) {
-                        techLineIdFieldName = el.name;
-                        break;
-                    }
-                }
-            }
-
-            noteField.value = noteText;
-
-            const popupSaveBtn = document.querySelector(
-                '#orderLineDetailsForm input[type="button"][value="Save"]'
-            );
-
-            if (!popupSaveBtn) {
-                saveBtn.textContent = 'Failed — try again';
-                saveBtn.disabled = false;
-                closeWindow();
-                document.getElementById('tech-popup-hider')?.remove();
-                return;
-            }
-
-            popupSaveBtn.click();
-            document.getElementById('tech-popup-hider')?.remove();
-
-            const reposition = () => repositionNoteRow(lineId);
-            setTimeout(reposition, 200);
-            setTimeout(reposition, 500);
-            setTimeout(reposition, 1000);
-
-            // Fallback close if postOrderLineDetails doesn't call closeWindow
-            setTimeout(() => {
-                closeWindow();
-                repositionNoteRow(lineId);
-                saveBtn.textContent = 'Saved ✓';
-                saveBtn.disabled = false;
-                setTimeout(() => { saveBtn.textContent = originalLabel; }, 1500);
-            }, 2000);
-        };
-
-        setTimeout(() => tryFill(15), 150);
-    }
-
-    function addInlineNotesToAllLines() {
-        if (!isOrderPage) return;
-
-        document.querySelectorAll('tr.line-item[id^="OrderLine_"]').forEach(lineRow => {
-            const lineId = lineRow.id.replace('OrderLine_', '');
-            if (!lineId) return;
-
-            // Check if a note row already exists for this line
-            const existing = document.querySelector(`.${INLINE_NOTE_CLASS}[data-line-id="${lineId}"]`);
-            if (existing) {
-                if (existing.dataset.placement !== 'source-area') {
-                    // Fallback row — remove it and let addInlineNoteRow retry
-                    existing.remove();
-                    delete lineRow.dataset.techNoteAdded;
-                } else {
-                    lineRow.dataset.techNoteAdded = 'true';
-                    return;
-                }
-            }
-
-            if (!lineId || lineRow.dataset.techNoteAdded) return;
-            addInlineNoteRow(lineRow);
-        });
-    }
-
-    function repositionAllNoteRows() {
-        if (!isOrderPage) return;
-        document.querySelectorAll(`.${INLINE_NOTE_CLASS}[data-line-id]`).forEach(noteRow => {
-            const lineId = noteRow.dataset.lineId;
-            if (lineId) repositionNoteRow(lineId);
-        });
-    }
-
-    function observeOrderLines() {
-        // Clean up any note rows mistakenly injected inside source-line tables
-        // by the old buggy selector that matched tr[id^="OrderLine_"] against
-        // source lines. Also reset techNoteAdded on source lines.
-        document.querySelectorAll('table.lq-table-list.sources tr.tech-inline-note-row').forEach(el => el.remove());
-        document.querySelectorAll('tr.sourceLine[data-tech-note-added]').forEach(el => delete el.dataset.techNoteAdded);
-        // Remove note rows that landed in the wrong inner table (e.g. the
-        // "Performed" summary table instead of the condensedLabel table)
-        document.querySelectorAll('table.table-bordered.table-condensed.small .tech-inline-note-row').forEach(row => {
-            const srcArea = row.closest('[id^="OrderLineSourceArea_"]');
-            if (!srcArea) return;
-            const label = srcArea.querySelector('.condensedLabel');
-            if (!label) return;
-            const correctTable = label.closest('table.table-bordered.table-condensed.small');
-            if (correctTable && !correctTable.contains(row)) {
-                const lineId = row.dataset.lineId;
-                const lineRow = lineId ? document.getElementById('OrderLine_' + lineId) : null;
-                if (lineRow) delete lineRow.dataset.techNoteAdded;
-                row.remove();
-            }
-        });
-
         addInlineNotesToAllLines();
-        hideButtons();
-        repositionAllNoteRows();
-        preserveServiceGridColWidths();
-
-        // Poll at a low frequency indefinitely — handles AJAX refreshes
-        // (refreshLines) that happen after the initial load period, since
-        // MutationObserver debounce can race with the last DOM mutation.
-        setInterval(() => {
-            addInlineNotesToAllLines();
-            hideButtons();
-            repositionAllNoteRows();
-            preserveServiceGridColWidths();
-        }, 2000);
-
-        // Also watch document.body for immediate response to mutations
-        let debounce = null;
-        const observer = new MutationObserver(() => {
-            clearTimeout(debounce);
-            debounce = setTimeout(() => {
-                addInlineNotesToAllLines();
-                hideButtons();
-                repositionAllNoteRows();
-                preserveServiceGridColWidths();
-            }, 200);
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
+        if (!pinnedServiceCaptured) { captureAndPinService(); }
     }
+
+    if (TS) {
+        TS.observer.register(runAllUpdates, { debounce: 300 });
+    } else {
+        var mutationTimer = null;
+        var isTyping = false;
+        var singleObserver = new MutationObserver(function(mutations){
+            if (isTyping) return;
+            clearTimeout(mutationTimer);
+            mutationTimer = setTimeout(runAllUpdates, 300);
+        });
+        singleObserver.observe(document.querySelector('#order-line-area') || document.body, { childList: true, subtree: true });
+        document.addEventListener('focusin', function(e) {
+            if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') isTyping = true;
+        });
+        document.addEventListener('focusout', function(e) {
+            if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') {
+                isTyping = false;
+                clearTimeout(mutationTimer);
+                mutationTimer = setTimeout(function() { addInlineNotesToAllLines(); }, 100);
+            }
+        });
+        singleObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Toggle button
+    // ═════════════════════════════════════════════════════════════════════════
 
     function createToggleButton() {
-        const wrapper = document.createElement('div');
-        Object.assign(wrapper.style, { position: 'fixed', top: '14px', right: '100px', zIndex: 9999, display: 'flex', alignItems: 'center', gap: '8px' });
-
-        const label = document.createElement('span');
+        var wrapper = document.createElement('div');
+        Object.assign(wrapper.style, { position:'fixed', top:'14px', right:'100px', zIndex:9999, display:'flex', alignItems:'center', gap:'8px' });
+        var label = document.createElement('span');
         label.textContent = 'Tech Mode';
-        Object.assign(label.style, { color: '#ffffff', fontSize: '13px', fontWeight: 'bold' });
-
-        const track = document.createElement('div');
-        Object.assign(track.style, { width: '40px', height: '20px', borderRadius: '10px', background: techMode ? '#28a745' : '#555', position: 'relative', cursor: 'pointer' });
-
-        const knob = document.createElement('div');
-        Object.assign(knob.style, { width: '16px', height: '16px', borderRadius: '50%', background: '#fff', position: 'absolute', top: '2px', left: techMode ? '22px' : '2px' });
-
+        Object.assign(label.style, { color:'#ffffff', fontSize:'13px', fontWeight:'bold' });
+        var track = document.createElement('div');
+        track.id = 'tm-mode-track';
+        Object.assign(track.style, { width:'40px', height:'20px', borderRadius:'10px', background:techMode?'#28a745':'#555', position:'relative', cursor:'pointer' });
+        var knob = document.createElement('div');
+        knob.id = 'tm-mode-knob';
+        Object.assign(knob.style, { width:'16px', height:'16px', borderRadius:'50%', background:'#fff', position:'absolute', top:'2px', left:techMode?'22px':'2px' });
         track.appendChild(knob);
         wrapper.appendChild(label);
         wrapper.appendChild(track);
-
-        track.onclick = () => {
-            techMode = !techMode;
-            localStorage.setItem(STORAGE_KEY, techMode);
-            track.style.background = techMode ? '#28a745' : '#555';
-            knob.style.left = techMode ? '22px' : '2px';
-            refreshCSS();
-
-            if (techMode) {
-                hideHeaderContent();
-                hideStaticSections();
-                hideJobsContent();
-                hideButtons();
-                setTimeout(() => { freezeFields(); renameCompleteOrderByHeader(); fixJumpLinks(); moveSerialNumberRow(); moveInspectionButton(); }, 100);
-            } else {
-                restoreHeaderContent();
-                restoreStaticSections();
-                restoreJobsContent();
-                restoreButtons();
-                unfreezeFields();
-                restoreSerialNumberRow();
-                restoreOrderLineHeaders();
-            }
-        };
-
+        track.onclick = toggleTechMode;
         document.body.appendChild(wrapper);
     }
 
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Keyboard shortcuts
+    // ═════════════════════════════════════════════════════════════════════════
+
     function setupKeyboardShortcuts() {
-        document.addEventListener('keydown', (e) => {
+        document.addEventListener('keydown', function(e){
             if (e.ctrlKey && e.key === 's') {
                 e.preventDefault();
-                setTimeout(() => {
-                    const headerBtn = document.querySelector('button[onclick*="saveOrderHeader"]');
-                    if (headerBtn) { headerBtn.click(); }
+                setTimeout(function(){
+                    var hb = document.querySelector('button[onclick*="saveOrderHeader"]');
+                    if (hb) hb.click();
                 }, 100);
-                setTimeout(() => {
-                    const linesBtn = document.querySelector('button[onclick*="saveLines"], button[title="Save Lines"]');
-                    if (linesBtn) { linesBtn.click(); }
+                setTimeout(function(){
+                    var lb = document.querySelector('button[onclick*="saveLines"], button[title="Save Lines"]');
+                    if (lb) lb.click();
                 }, 600);
             }
             if (e.ctrlKey && e.key === 'e') {
                 e.preventDefault();
-                const editBtn = document.querySelector('button[onclick*="refreshOrderHeader"]');
-                if (editBtn) { editBtn.click(); }
+                var eb = document.querySelector('button[onclick*="refreshOrderHeader"]');
+                if (eb) eb.click();
             }
         });
     }
 
-    // ── Init ──
-injectCSS();
-createToggleButton();
-setupKeyboardShortcuts();
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Init
+    // ═════════════════════════════════════════════════════════════════════════
 
-document.addEventListener('shown.bs.tab', e => {
-    if (e.target.getAttribute('href') === '#servicePicker') {
-        setTimeout(watchServiceGrid, 100);
-    }
-});
+    injectStaticStyles();
+    createToggleButton();
+    setupKeyboardShortcuts();
 
-observeHeader();
-observeOrderLines();
-
-if (techMode) {
-    hideHeaderContent();
-    hideStaticSections();
-    hideJobsContent();
-}
-
-setTimeout(() => {
-    moveInspectionButton();
-    watchServiceGrid();
-    preserveServiceGridColWidths();
-    addInlineNotesToAllLines();
-    hideButtons();
-    hideOrderLineHeaders();
+    // Initial state
     if (techMode) {
-        freezeFields();
-        renameCompleteOrderByHeader();
-        fixJumpLinks();
-        moveSerialNumberRow();
+        hideButtonsById();
+        hideHeaderSections();
+        hideJobsContent();
     }
-}, 500);
+
+    // Watch tab switches for service grid
+    document.addEventListener('shown.bs.tab', function(e){
+        if (e.target.getAttribute('href') === '#servicePicker') {
+            setTimeout(watchServiceGrid, 100);
+        }
+    });
+
+    // Initial delayed setup
+    setTimeout(function(){
+        moveInspectionButton();
+        watchServiceGrid();
+        preserveServiceGridColWidths();
+        addInlineNotesToAllLines();
+        hideBtns();
+        hideOrderLineHeaders();
+        if (techMode) { freezeFields(); renameCompleteOrderByHeader(); fixJumpLinks(); moveSerialNumberRow(); }
+    }, 500);
 })();
