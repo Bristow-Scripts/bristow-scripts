@@ -1,29 +1,694 @@
 // ==UserScript==
-// @name         TECH - Auto Add Labor + Tech Time Panel
+// @name         TECH - Expanded / Auto Labor / Time Panel
 // @namespace    http://tampermonkey.net/
-// @version      8.1
+// @version      9.1
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
-// @description  Checks for and adds the labor line and processes it, added panel that will add automatically add time tech hourly line.
+// @description  Uses TechShared core for observer management, polling, and DOM helpers.
+// @require      https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Shared-Core.user.js
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
+// @run-at       document-end
 // ==/UserScript==
 
+// =========================================================================
+// ORIGINAL SCRIPT 1: TECH - Time Expanded Section Trimmed
+// =========================================================================
+(function () {
+    'use strict';
+    var BR_MAX_IFRAME_HEIGHT = 5000;
+
+    function hideExtraIframeUI(doc) {
+        if (doc.documentElement.dataset.brUiHidden === "1") return;
+        doc.documentElement.dataset.brUiHidden = "1";
+
+        // Hide filter label-card groups by label text
+        doc.querySelectorAll(".form-group.label-card").forEach(function (group) {
+            var label = group.querySelector(".control-label");
+            if (!label) return;
+            var text = label.textContent.trim();
+            if (["Sub Category", "Activity", "Task", "Checklist"].indexOf(text) !== -1) {
+                group.style.display = "none";
+            }
+        });
+
+        // Hide the standalone filter controls (category select, etc.)
+        var filterIds = ['ServiceCategorySearch', 'ServiceNumberSearch', 'ServiceAltServiceNumberSearch'];
+        filterIds.forEach(function (id) {
+            var el = doc.getElementById(id);
+            if (!el) return;
+            var parent = el.closest('.col-md-2, .col-md-3, .col-md-4, .form-group');
+            if (parent) { parent.style.display = 'none'; } else { el.style.display = 'none'; }
+        });
+
+        doc.querySelectorAll('a[href*="ServiceTimeTracking"]').forEach(function (el) {
+            el.style.display = "none";
+        });
+
+        doc.querySelectorAll("tr").forEach(function (tr) {
+            var th = tr.querySelector("th");
+            if (!th) return;
+            var label = th.textContent.trim();
+            if (label === "Output" || label === "Job Status") {
+                tr.style.display = "none";
+            }
+        });
+
+        doc.querySelectorAll("label").forEach(function (lbl) {
+            if (lbl.textContent.trim() === "Service Tags") {
+                lbl.style.display = "none";
+            }
+        });
+    }
+
+    function hideOrderLineColumns(doc) {
+        if (doc.documentElement.dataset.brColsHidden === "1") return;
+        doc.documentElement.dataset.brColsHidden = "1";
+
+        // ── Hide Cost, Markup, Price, Per, Subtotal columns ──
+        // Headers
+        doc.querySelectorAll('tr.lq-table-header-w-options th').forEach(function (th) {
+            var label = th.textContent.trim();
+            if (['Cost', 'Markup', 'Price', 'Per', 'Subtotal'].indexOf(label) !== -1) {
+                th.style.display = 'none';
+            }
+        });
+        // Line item data cells
+        ['OrderLineCostMask_', 'OrderLineMarkup_', 'OrderLinePriceMask_', 'OrderLinePricedPerDefault_', 'OrderLineSubtotal_'].forEach(function (prefix) {
+            doc.querySelectorAll('tr.line-item > td:has(input[id^="' + prefix + '"])').forEach(function (td) {
+                td.style.display = 'none';
+            });
+        });
+        // Source line data cells
+        ['OrderLineSourceCost_', 'OrderLineSourceMarkup_', 'OrderLineSourcePrice_', 'OrderLineSourceSubtotal_'].forEach(function (prefix) {
+            doc.querySelectorAll('tr.sourceLine > td:has(input[id^="' + prefix + '"])').forEach(function (td) {
+                td.style.display = 'none';
+            });
+        });
+        // Source line "Per Unit" column (no input — nth-child 8)
+        doc.querySelectorAll('tr.sourceLine > td:nth-child(8)').forEach(function (td) {
+            td.style.display = 'none';
+        });
+    }
+
+    function removeInternalScrollContainers(doc) {
+        if (doc.documentElement.dataset.brScrollFixed === "1") return;
+        doc.documentElement.dataset.brScrollFixed = "1";
+
+        doc.querySelectorAll('*').forEach(function (el) {
+            if (el.closest('.k-animation-container, .k-list-container, .k-popup, .k-grid-header')) return;
+            var cs = doc.defaultView.getComputedStyle(el);
+            var isScrollable = (cs.overflowY === 'auto' || cs.overflowY === 'scroll' || cs.overflowY === 'overlay');
+            var isHeightConstrained =
+                (cs.maxHeight && cs.maxHeight !== 'none') ||
+                (cs.height && cs.height !== 'auto');
+
+            if (isScrollable && (cs.overflowY !== 'auto' || isHeightConstrained)) {
+                el.style.overflowY = 'visible';
+                el.style.maxHeight = 'none';
+            }
+        });
+    }
+
+    function pollResizeUntilStable(iframe) {
+        if (iframe.dataset.brPollDone === "1") return;
+        if (iframe.dataset.brPolling === "1") return;
+        iframe.dataset.brPolling = "1";
+
+        var stableCount = 0;
+        var lastHeight = -1;
+        var attempts = 0;
+        var maxAttempts = 30;
+
+        var poll = setInterval(function () {
+            attempts++;
+            try {
+                var doc = iframe.contentDocument || iframe.contentWindow.document;
+                if (!doc || !doc.body) return;
+                var h = Math.min(Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight, 300), BR_MAX_IFRAME_HEIGHT);
+                if (h !== lastHeight) {
+                    iframe.style.height = (h + 20) + "px";
+                    lastHeight = h;
+                    stableCount = 0;
+                } else {
+                    stableCount++;
+                }
+                if (stableCount >= 3 || attempts >= maxAttempts) {
+                    clearInterval(poll);
+                    iframe.dataset.brPolling = "0";
+                    iframe.dataset.brPollDone = "1";
+                }
+            } catch (e) {
+                clearInterval(poll);
+                iframe.dataset.brPolling = "0";
+                iframe.dataset.brPollDone = "1";
+            }
+        }, 200);
+    }
+
+    function observeIframeHeight(iframe) {
+        if (iframe.dataset.brResizeObserverAttached === "1") return;
+        try {
+            var doc = iframe.contentDocument || iframe.contentWindow.document;
+            if (!doc || !doc.documentElement) return;
+
+            var applyingSelf = false;
+            var stableCount = 0;
+            var lastApplied = -1;
+
+            var ro = new ResizeObserver(function () {
+                if (applyingSelf) return;
+
+                var h = Math.min(Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight, 300), BR_MAX_IFRAME_HEIGHT);
+                var target = h + 20;
+
+                if (Math.abs(target - lastApplied) < 10) {
+                    stableCount++;
+                    if (stableCount >= 3) {
+                        if (h >= BR_MAX_IFRAME_HEIGHT) {
+                            console.warn("[Trim] Iframe hit max height cap - content may be taller than expected");
+                        }
+                        ro.disconnect();
+                    }
+                    return;
+                }
+
+                stableCount = 0;
+                lastApplied = target;
+                applyingSelf = true;
+                iframe.style.height = target + "px";
+                requestAnimationFrame(function () {
+                    requestAnimationFrame(function () { applyingSelf = false; });
+                });
+            });
+
+            ro.observe(doc.documentElement);
+            iframe.dataset.brResizeObserverAttached = "1";
+        } catch (e) {
+            console.warn("[Trim] Could not attach ResizeObserver", e);
+        }
+    }
+
+    function neutralizeIframeBackground(doc) {
+        if (doc.getElementById("br-trim-style-overrides")) return;
+        var style = doc.createElement("style");
+        style.id = "br-trim-style-overrides";
+        style.textContent = [
+            "html, body { background: #fff !important; }",
+            "tr.lq-table-header-w-options th:nth-child(3),",
+            "tr.lq-table-header-w-options th:nth-child(4),",
+            "tr.lq-table-header-w-options th:nth-child(5),",
+            "tr.lq-table-header-w-options th:nth-child(6),",
+            "tr.lq-table-header-w-options th:nth-child(8),",
+            "tr.line-item > td:nth-child(3),",
+            "tr.line-item > td:nth-child(4),",
+            "tr.line-item > td:nth-child(5),",
+            "tr.line-item > td:nth-child(6),",
+            "tr.line-item > td:nth-child(8),",
+            "tr.sourceLine > td:nth-child(5),",
+            "tr.sourceLine > td:nth-child(6),",
+            "tr.sourceLine > td:nth-child(7),",
+            "tr.sourceLine > td:nth-child(8),",
+            "tr.sourceLine > td:nth-child(10) { display: none !important; }"
+        ].join('\n');
+        doc.head.appendChild(style);
+    }
+
+    if (window !== window.top) return;
+
+    function findJobLink() {
+        var link = document.querySelector("a.monospaced[href*='Orders/Jobs/Edit']");
+        return link ? link.href : null;
+    }
+
+    function waitForJobLink() {
+        return new Promise(function (resolve) {
+            var existing = findJobLink();
+            if (existing) return resolve(existing);
+
+            if (window.TechShared) {
+                TechShared.poll('jobLink', findJobLink, function (link) {
+                    resolve(link);
+                }, 20000);
+                return;
+            }
+
+            var observer = new MutationObserver(function () {
+                var link = findJobLink();
+                if (link) {
+                    observer.disconnect();
+                    resolve(link);
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+            setTimeout(function () { observer.disconnect(); resolve(null); }, 20000);
+        });
+    }
+
+    function refreshServiceGrid(doc, win) {
+        try {
+            var gridEl = doc.getElementById('serviceGrid');
+            if (!gridEl) return;
+            var $ = win.jQuery;
+            // Try Kendo Grid
+            var grid = $(gridEl).data('kendoGrid');
+            if (grid && grid.dataSource) {
+                grid.dataSource.read();
+                return;
+            }
+            // Fallback: try refreshLines
+            if (typeof win.refreshLines === 'function') {
+                win.refreshLines();
+            }
+        } catch (e) {
+            console.warn("[Trim] Could not refresh grid", e);
+        }
+    }
+
+    function preloadServiceFilters(iframe, doc) {
+        if (iframe.dataset.brFiltersPreloaded === "1") return;
+
+        try {
+            var win = iframe.contentWindow;
+            var $ = win.jQuery;
+
+            // Find ALL tag combos, fetch each, and use the one containing "Hourly"
+            var tagInputs = doc.querySelectorAll('input[data-role="combobox"][id^="TagSearch_"]');
+            var categorySelect = doc.getElementById("ServiceCategorySearch");
+
+            if (!categorySelect) {
+                var retries = parseInt(iframe.dataset.brFilterRetries || "0");
+                if (retries < 3) {
+                    iframe.dataset.brFilterRetries = String(retries + 1);
+                    setTimeout(function () {
+                        preloadServiceFilters(iframe, doc);
+                    }, 1500);
+                }
+                return;
+            }
+
+            iframe.dataset.brFiltersPreloaded = "1";
+
+            // Category select: native DOM change event (run this regardless of combo)
+            try {
+                var otherOption = Array.from(categorySelect.options).find(function (o) {
+                    return o.text.trim() === "OTHER";
+                });
+                if (otherOption) {
+                    categorySelect.value = otherOption.value;
+                    if (typeof win.serviceCategorySearch === 'function') {
+                        win.serviceCategorySearch();
+                    }
+                    categorySelect.dispatchEvent(new Event('change'));
+                }
+            } catch (e) {
+                console.warn("[Trim] Could not set category filter", e);
+            }
+
+            // Discover the Task tag combo by probing combos for "Hourly"
+            var combos = [];
+            if ($ && tagInputs) {
+                Array.from(tagInputs).forEach(function (input) {
+                    var c = $(input).data("kendoComboBox");
+                    if (c) {
+                        var url = c.dataSource && c.dataSource.transport && c.dataSource.transport.options && c.dataSource.transport.options.read && c.dataSource.transport.options.read.url;
+                        // Skip part catalog combos — only service combos have "Hourly"
+                        if (url && url.indexOf('/Parts/') !== -1) return;
+                        combos.push({ combo: c, url: url || '?' });
+                    }
+                });
+            }
+            console.log('[Trim] Found ' + combos.length + ' service combo(s)');
+
+            // Probe each combo's data to find "Hourly"
+            var combo = null;
+            var match = null;
+            var probeIdx = 0;
+
+            function probeNext() {
+                if (probeIdx >= combos.length) {
+                    console.warn('[Trim] No combo contains "Hourly"');
+                    return;
+                }
+                var entry = combos[probeIdx];
+                var sep = entry.url.indexOf('?') > -1 ? '&' : '?';
+                console.log('[Trim] Probing #' + probeIdx + ': ' + entry.url);
+                $.ajax({
+                    url: entry.url + sep + 'take=9999',
+                    dataType: "json",
+                    success: function (data) {
+                        var items = data;
+                        if (data && data.Data) items = data.Data;
+                        if (Array.isArray(items)) {
+                            var m = items.find(function (item) {
+                                return item.Text && item.Text.toLowerCase().indexOf("hourly") !== -1;
+                            });
+                            if (m) {
+                                combo = entry.combo;
+                                match = m;
+                                console.log('[Trim] Found "Hourly" in combo #' + probeIdx + ': ' + match.Text + ' = ' + match.Value);
+                                setupComboAndGrid();
+                                return;
+                            }
+                        }
+                        probeIdx++;
+                        probeNext();
+                    },
+                    error: function () {
+                        probeIdx++;
+                        probeNext();
+                    }
+                });
+            }
+
+            function setupComboAndGrid() {
+                // 1. Display the text in the input box
+                var rawInput = combo.input ? (combo.input[0] || combo.input) : null;
+                if (rawInput) {
+                    rawInput.value = match.Text;
+                }
+                // 2. Set Kendo internal state so combo.value() returns the UUID
+                combo._value = match.Value;
+                combo._selectedValue = match.Value;
+                combo._selectedText = match.Text;
+                // 3. Override combo.value() getter (ensures any internal code reads the UUID)
+                var _origVal = combo.value.bind(combo);
+                combo.value = function (val) {
+                    return val !== undefined ? _origVal(val) : match.Value;
+                };
+                // 4. Set combobox value via Kendo's public API (may fail in virtual mode, but best-effort)
+                try { combo.value(match.Value); } catch (e) { /* virtual mode - ignore */ }
+                // 5. Disable server operations (use internal Kendo properties)
+                var grid = doc.getElementById('serviceGrid') && $(doc.getElementById('serviceGrid')).data('kendoGrid');
+                if (grid && grid.dataSource) {
+                    var ds = grid.dataSource;
+                    ds._serverPaging = false;
+                    ds._serverSorting = false;
+                    ds._serverFiltering = false;
+                    // Hook schema.parse to filter every response by Task
+                    if (ds.options && ds.options.schema) {
+                        var schema = ds.options.schema;
+                        var origParse = schema.parse;
+                        schema.parse = function (response) {
+                            if (response && Array.isArray(response.Data)) {
+                                response.Data = response.Data.filter(function (svc) {
+                                    return svc.ServiceTags && svc.ServiceTags.some(function (tag) {
+                                        return tag.TagTypeName === "Task" && tag.TagValue && tag.TagValue.trim().toLowerCase() === "hourly";
+                                    });
+                                });
+                                response.Total = response.Data.length;
+                            }
+                            return origParse ? origParse(response) : response;
+                        };
+                    }
+                }
+                // 6. Trigger the page's own serviceTagSearch handler (which reads combo.value())
+                if (typeof win.serviceTagSearch === 'function') {
+                    win.serviceTagSearch();
+                }
+                // 7. Watchdog
+                var ticks = 0;
+                var watchdog = setInterval(function () {
+                    if (rawInput && rawInput.value !== match.Text) {
+                        rawInput.value = match.Text;
+                    }
+                    if (++ticks > 10) clearInterval(watchdog);
+                }, 100);
+                console.log('[Trim] Set combo value to:', combo.value ? combo.value() : '?');
+                combo.close();
+                refreshServiceGrid(doc, win);
+            }
+
+            probeNext();
+        } catch (e) {
+            console.warn("[Trim] Could not preload service filters", e);
+            iframe.dataset.brFiltersPreloaded = "0";
+        }
+    }
+
+    function removeStuffFromIframe(iframe) {
+        try {
+            var doc = iframe.contentDocument || iframe.contentWindow.document;
+            if (!doc) return;
+
+            if (!doc.querySelector('#serviceGrid')) {
+                console.log('[Trim] Grid not ready yet - skipping');
+                return;
+            }
+
+            console.log('[Trim] Grid ready - performing cleanup');
+            neutralizeIframeBackground(doc);
+            // removeInternalScrollContainers(doc);  // can cause whitespace (removes overflow constraints)
+            preloadServiceFilters(iframe, doc);
+            hideExtraIframeUI(doc);
+
+            doc.querySelectorAll('a.btn.btn-default[href="#HeaderTarget"]').forEach(el => el.remove());
+            doc.querySelectorAll('a.btn.btn-default[href="#AddPartTarget"]').forEach(el => el.remove());
+            doc.querySelectorAll('a.btn.btn-default[href="#CommentsTarget"]').forEach(el => el.remove());
+
+            var navbar = doc.querySelector("nav.navbar");
+            if (navbar) navbar.remove();
+
+            var jumpLinks = doc.querySelectorAll(
+                'a[href="#HeaderTarget"], a[href="#AddPartTarget"], a[href="#RQsTarget"], a[href="#CommentsTarget"]'
+            );
+
+            jumpLinks.forEach(function (link) {
+                var container = link.closest(".col-md-4");
+                if (container) container.remove();
+            });
+
+            var commentsTarget = doc.getElementById("CommentsTarget");
+            if (commentsTarget) {
+                var section = commentsTarget.closest(".row.content-group");
+                if (section) section.remove();
+            }
+
+            var desc = doc.getElementById("HeaderInfo_Description");
+            var notes = doc.getElementById("HeaderInfo_JobNotes");
+
+            [desc, notes].forEach(function (el) {
+                if (el) {
+                    var row = el.closest(".row");
+                    if (row) row.remove();
+                }
+            });
+
+            var partsTabLink = doc.querySelector('a[href="#partPicker"]');
+            if (partsTabLink) {
+                var li = partsTabLink.closest("li");
+                if (li) li.remove();
+            }
+
+            var partsContent = doc.getElementById("partPicker");
+            if (partsContent) partsContent.remove();
+
+            var servicesTabLink = doc.querySelector('a[href="#servicePicker"]');
+            var servicesContent = doc.getElementById("servicePicker");
+
+            if (servicesTabLink) {
+                var li = servicesTabLink.closest("li");
+                if (li) li.classList.add("active");
+                servicesTabLink.setAttribute("aria-expanded", "true");
+            }
+
+            if (servicesContent) {
+                servicesContent.classList.add("active", "in");
+            }
+
+            doc.querySelectorAll("h5").forEach(function (h) {
+                if (h.textContent.trim() === "Order Line Details") {
+                    var row = h.closest(".row");
+                    if (row) row.remove();
+                }
+            });
+
+            doc.querySelectorAll('input[type="submit"][value="Save"]').forEach(btn => btn.remove());
+
+            var readyBtn = doc.getElementById("readyButton");
+            if (readyBtn) readyBtn.remove();
+
+            var completeBtn = doc.getElementById("completeButton");
+            if (completeBtn) completeBtn.remove();
+
+            doc.querySelectorAll('a[href*="/Orders/Jobs/PerformServices"]').forEach(function (el) {
+                el.remove();
+            });
+
+            doc.querySelectorAll('a[href*="ReportGenerator/PrintPDF"]').forEach(btn => btn.remove());
+
+            var footer = doc.querySelector("footer");
+            if (footer) footer.remove();
+
+            doc.querySelectorAll("a.accordion-toggle").forEach(function (toggle) {
+                if (toggle.textContent.trim() === "Uploads") {
+                    var well = toggle.closest(".well.well-sm");
+                    if (well) well.remove();
+                }
+            });
+
+            var orderSubtotal = doc.getElementById("OrderSubtotal");
+            if (orderSubtotal) {
+                var container = orderSubtotal.closest(".container-fluid");
+                if (container) container.remove();
+            }
+
+            var refreshBtn = doc.querySelector('button[onclick="refreshLines()"]');
+            var saveBtn = doc.querySelector('button[onclick="saveAll()"]');
+
+            if (refreshBtn && saveBtn) {
+
+                var container = refreshBtn.parentElement;
+
+                while (container && !container.contains(saveBtn)) {
+                    container = container.parentElement;
+                }
+
+                if (container) {
+                    container.style.width = "100%";
+                    container.style.display = "flex";
+                    container.style.justifyContent = "flex-end";
+                    container.style.alignItems = "center";
+                    container.style.gap = "5px";
+                    container.style.paddingRight = "0px";
+                    container.style.marginRight = "0px";
+
+                    saveBtn.style.order = "1";
+                    refreshBtn.style.order = "2";
+                }
+            }
+
+            hideOrderLineColumns(doc);
+
+            pollResizeUntilStable(iframe);
+            observeIframeHeight(iframe);
+
+        } catch (e) {
+            console.warn("Iframe not ready or inaccessible");
+        }
+    }
+
+    function watchIframe(iframe) {
+        try {
+            var doc = iframe.contentDocument || iframe.contentWindow.document;
+            if (!doc) return;
+
+            var debounceTimer = null;
+            var observer = new MutationObserver(function () {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(function () {
+                removeStuffFromIframe(iframe);
+            }, 200);
+      });
+
+            observer.observe(doc.body, {childList: true,subtree: true});
+            removeStuffFromIframe(iframe);
+
+        } catch (e) {
+            console.warn("Could not attach observer to iframe");
+        }
+    }
+
+    function createTimeExpandedSection(jobUrl) {
+
+        var anchor = document.querySelector("#OrderRowsSection");
+        if (!anchor) return;
+
+        if (document.getElementById("timeExpandedSection")) return;
+
+        var section = document.createElement("div");
+        section.className = "row content-group";
+        section.id = "timeExpandedSection";
+        section.style.marginTop = "20px";
+
+        var col = document.createElement("div");
+        col.className = "col-md-12";
+
+        var well = document.createElement("div");
+        well.className = "well well-sm";
+
+        var h3 = document.createElement("h3");
+
+        var toggle = document.createElement("a");
+        toggle.innerText = "Time Expanded";
+        toggle.className = "accordion-toggle collapsed";
+        toggle.setAttribute("data-toggle", "collapse");
+
+        var id = "collapseTimeExpanded";
+        toggle.setAttribute("data-target", "#" + id);
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.setAttribute("aria-controls", id);
+
+        toggle.onmouseover = function () {
+            this.style.cursor = "pointer";
+        };
+
+        h3.appendChild(toggle);
+
+        var body = document.createElement("div");
+        body.className = "row collapse";
+        body.id = id;
+
+        var inner = document.createElement("div");
+        inner.className = "col-md-12";
+
+        var iframe = document.createElement("iframe");
+        iframe.src = jobUrl;
+        iframe.style.width = "100%";
+        iframe.style.height = "2000px";
+        iframe.style.border = "1px solid #ccc";
+        iframe.style.borderRadius = "6px";
+        iframe.style.marginTop = "10px";
+        iframe.style.overflow = "hidden";
+
+        iframe.onload = function () {
+            watchIframe(iframe);
+        };
+
+        inner.appendChild(iframe);
+        body.appendChild(inner);
+
+        well.appendChild(h3);
+        well.appendChild(body);
+
+        col.appendChild(well);
+        section.appendChild(col);
+
+        anchor.parentNode.insertBefore(section, anchor.nextSibling);
+    }
+
+    function init() {
+        waitForJobLink().then(function (jobUrl) {
+            if (!jobUrl) return;
+            createTimeExpandedSection(jobUrl);
+        });
+    }
+
+    init();
+
+})();
+
+// =========================================================================
+// ORIGINAL SCRIPT 2: TECH - Auto Add Labor + Tech Time Panel
+// =========================================================================
 (function () {
     'use strict';
 
     if (!window.location.href.includes('/Orders/Orders/Edit')) return;
 
     // =========================================================================
-    // SHARED UTILITIES
+    // SHARED UTILITIES — delegates to TechShared where available
     // =========================================================================
 
     var SERVICE_ID = '834f33a0-2baf-4b64-6727-08ddb592746f';
+    var undoStack = [];
+    var TS = window.TechShared;
 
-    function log(msg)  { console.log('[Tech] ' + msg); }
-    function warn(msg) { console.warn('[Tech] ' + msg); }
+    function log(msg)  { TS ? TS.log(msg) : console.log('[Tech] ' + msg); }
+    function warn(msg) { TS ? TS.log(msg, 'warn') : console.warn('[Tech] ' + msg); }
 
     function poll(label, conditionFn, onFound, timeoutMs, intervalMs) {
+        if (TS) return TS.poll(label, conditionFn, onFound, timeoutMs || 15000, intervalMs);
         timeoutMs  = timeoutMs  || 15000;
         intervalMs = intervalMs || 300;
         var elapsed = 0;
@@ -44,12 +709,14 @@
     }
 
     function getCsrfToken() {
+        if (TS) return TS.csrf.get();
         var el = document.querySelector('input[name="__RequestVerificationToken"]')
                || document.querySelector('meta[name="RequestVerificationToken"]');
         return el ? (el.value || el.getAttribute('content')) : null;
     }
 
     function getOrderId() {
+        if (TS) return TS.dom.getOrderId();
         return new URLSearchParams(window.location.search).get('id');
     }
 
@@ -58,6 +725,7 @@
     // =========================================================================
 
     function isOrderComplete() {
+        if (TS) return TS.dom.isOrderComplete();
         var rows = document.querySelectorAll('table.lq-table-info th');
         for (var i = 0; i < rows.length; i++) {
             if (rows[i].textContent.trim() === 'Order Status') {
@@ -251,11 +919,12 @@
     // =========================================================================
 
     var _iframe     = null;
-    var _techList   = null;
-    var _panelReady = false;
+    var _techList        = null;
+    var _techListLoading = null;
+    var _panelReady      = false;
 
     function getIframe() {
-        // Prefer Time Expanded iframe first (visible one)
+        if (TS) return TS.iframe.getVisible();
         var te = document.querySelector('#collapseTimeExpanded iframe');
         if (te) {
             try {
@@ -266,18 +935,21 @@
     }
 
     function getIframeDoc() {
+        if (TS) return TS.iframe.getDoc();
         var f = getIframe();
         if (!f) return null;
         try { return f.contentDocument || f.contentWindow.document; } catch (e) { return null; }
     }
 
     function getIframeWin() {
+        if (TS) return TS.iframe.getWin();
         var f = getIframe();
         if (!f) return null;
         try { return f.contentWindow; } catch (e) { return null; }
     }
 
     function getJobId() {
+        if (TS) return TS.dom.getJobId();
         var link = document.querySelector("a.monospaced[href*='Orders/Jobs/Edit']");
         if (link) {
             try { return new URL(link.href).searchParams.get('id'); } catch (e) {}
@@ -288,6 +960,7 @@
     }
 
     function getCsrfFromIframe() {
+        if (TS) return TS.csrf.getFromIframe();
         var iDoc = getIframeDoc();
         if (!iDoc) return null;
         var t = iDoc.querySelector('input[name="__RequestVerificationToken"]');
@@ -295,6 +968,7 @@
     }
 
     function findJobUrl() {
+        if (TS) return TS.dom.getJobLink();
         var link = document.querySelector("a.monospaced[href*='Orders/Jobs/Edit']");
         return link ? link.href : null;
     }
@@ -303,6 +977,12 @@
         return new Promise(function (resolve) {
             var existing = findJobUrl();
             if (existing) return resolve(existing);
+            if (TS) {
+                TS.poll('jobUrl', findJobUrl, function (link) {
+                    resolve(link);
+                }, 30000);
+                return;
+            }
             var obs = new MutationObserver(function () {
                 var link = findJobUrl();
                 if (link) { obs.disconnect(); resolve(link); }
@@ -314,10 +994,10 @@
 
     function createHiddenIframe(jobUrl) {
         log('Hidden iframe creation DISABLED to avoid conflict with Time Expanded');
-        // Do nothing - we only use the visible Time Expanded iframe
     }
 
     function waitForIframeReady(callback) {
+        if (TS) { TS.iframe.waitForReady(callback, 60000); return; }
         poll('iframe ready', function () {
             var iDoc = getIframeDoc();
             return (iDoc && iDoc.querySelector('.k-input-value-text')) ? true : null;
@@ -339,6 +1019,7 @@
     }
 
     function getOrderRepName() {
+        if (TS) return TS.dom.getOrderRepName();
         var rows = document.querySelectorAll('table.lq-table-info th');
         for (var i = 0; i < rows.length; i++) {
             if (rows[i].textContent.trim() === 'Order Rep') {
@@ -384,11 +1065,25 @@
     function loadTechList(callback) {
         if (_techList) { callback(_techList); return; }
 
+        if (_techListLoading) {
+            _techListLoading.push(callback);
+            return;
+        }
+        _techListLoading = [];
+        _techListLoading.push(callback);
+
+        function drainTechQueue(techs) {
+            _techList = techs;
+            var q = _techListLoading;
+            _techListLoading = null;
+            for (var i = 0; i < q.length; i++) q[i](techs);
+        }
+
         var iWin = getIframeWin();
         var iDoc = getIframeDoc();
-        if (!iWin || !iWin.jQuery || !iDoc) return callback([]);
+        if (!iWin || !iWin.jQuery || !iDoc) return drainTechQueue([]);
         var kendoGrid = iWin.jQuery('#serviceGrid').data('kendoGrid');
-        if (!kendoGrid) return callback([]);
+        if (!kendoGrid) return drainTechQueue([]);
 
         function doFetch() {
             kendoGrid.dataSource.pageSize(50);
@@ -403,7 +1098,6 @@
                     }
                 }
                 techs.sort(function (a, b) { return a.name.localeCompare(b.name); });
-                _techList = techs;
                 log('Tech list loaded: ' + techs.length + ' entries (filtered).');
 
                 try {
@@ -413,7 +1107,7 @@
                 } catch (e) {}
 
                 releaseKendoGrid();
-                callback(techs);
+                drainTechQueue(techs);
             });
         }
 
@@ -574,20 +1268,40 @@
     function doAddSubLine(lineId, hours, techName, isNewLine) {
         setFeedback('Logging hours...', true);
 
-        function applyAndSave(subInput) {
+function applyAndSave(subInput) {
+            // 1. Temporarily remove the native onchange handler to prevent the crash
+            const originalOnChange = subInput.onchange;
+            subInput.onchange = null;
+
+            // 2. Safely set the value
             subInput.value = hours;
-            subInput.focus();
-            subInput.dispatchEvent(new Event('change', { bubbles: true }));
-            subInput.blur();
-            setTimeout(function () {
-                updateMainLineTotal(lineId);
+            subInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+            // 3. Re-attach the handler after a micro-task delay
+            setTimeout(function() {
+                subInput.onchange = originalOnChange;
+
+                // 4. Now manually trigger the change event so the app processes the new value
+                // We wrap this in a try/catch in case the app's validator is still grumpy
+                try {
+                    subInput.dispatchEvent(new Event('change', { bubbles: true }));
+                } catch (e) {
+                    log('Suppressed validation noise: ' + e.message);
+                }
+
+                // 5. Final save sequence
                 setTimeout(function () {
-                    clickSaveInIframe();
-                    setFeedback('✔ ' + hours + 'h logged for ' + techName, true);
-                    resetBtn();
-                    setTimeout(updateTotalDisplay, 600);
+                    updateMainLineTotal(lineId);
+                    setTimeout(function () {
+                        clickSaveInIframe();
+                        setFeedback('✔ ' + hours + 'h logged for ' + techName, true);
+                        undoStack.push(subInput.id);
+                        updateUndoBtn();
+                        resetBtn();
+                        setTimeout(updateTotalDisplay, 600);
+                    }, 500);
                 }, 400);
-            }, 300);
+            }, 100);
         }
 
         if (isNewLine) {
@@ -693,6 +1407,12 @@
         }
     }
 
+    function updateUndoBtn() {
+        var btn = document.getElementById('tp-undo') || document.getElementById('tp-undo-m');
+        if (!btn) return;
+        btn.textContent = undoStack.length ? '↩ (' + undoStack.length + ')' : '↩';
+    }
+
     function createPanel(readOnly) {
         if (_panelReady || document.getElementById('timePanelRoot')) return;
         _panelReady = true;
@@ -734,6 +1454,9 @@
             '#tp-set,#tp-set-m{flex-shrink:0;padding:5px 10px;border:none;border-radius:5px;background:#378ADD;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap}',
             '#tp-set:hover,#tp-set-m:hover{background:#2a6cb5}',
             '#tp-set:disabled,#tp-set-m:disabled{opacity:.5;cursor:not-allowed}',
+            '#tp-undo,#tp-undo-m{flex-shrink:0;padding:5px 8px;border:1px solid #ccc;border-radius:5px;background:#f5f5f5;color:#666;cursor:pointer;font-size:12px;font-weight:500;line-height:1}',
+            '#tp-undo:hover,#tp-undo-m:hover{background:#e8e8e8;border-color:#bbb}',
+
             '#timePanelRoot.tp-mini{width:auto;min-width:260px}',
             '#tp-mini-controls{display:none;flex-direction:row;gap:4px;align-items:center;flex-shrink:0;margin-left:auto}',
             '#tp-hours-m{width:48px;padding:3px 4px;border:1px solid #ccc;border-radius:5px;font-size:12px;text-align:center}',
@@ -772,6 +1495,7 @@
             '  <div id="tp-mini-controls">',
             '    <input type="number" id="tp-hours-m" min="0.1" step="0.5" value="1.0" />',
             '    <button type="button" id="tp-set-m">Log Hours</button>',
+            '    <button type="button" id="tp-undo-m" title="Undo last entry">↩</button>',
             '  </div>',
             '  <div id="tp-total-box">',
             '    <div id="tp-total">—</div>',
@@ -787,6 +1511,7 @@
             '  <select id="tp-tech-select"><option value="">Loading techs...</option></select>',
             '  <input type="number" id="tp-hours" min="0.1" step="0.5" value="1.0" placeholder="hrs" />',
             '  <button id="tp-set">Log Hours</button>',
+            '  <button id="tp-undo" title="Undo last entry">↩</button>',
             '</div>'
         ].join('');
         document.body.appendChild(panel);
@@ -804,6 +1529,55 @@
         ].join(';');
         document.body.appendChild(pill);
 
+        var resetBtn = document.createElement('button');
+        resetBtn.id = 'tp-reset-pos';
+        resetBtn.title = 'Reset panel position to default';
+        resetBtn.textContent = '↺ Reset Panel';
+        resetBtn.style.cssText = [
+            'position:fixed', 'top:6px', 'right:300px',
+            'z-index:100000', 'background:rgba(0,0,0,0.45)', 'color:rgba(255,255,255,0.7)',
+            'border:none', 'border-radius:4px', 'padding:2px 8px',
+            'font-family:system-ui,sans-serif', 'font-size:12px',
+            'cursor:pointer', 'opacity:1.0', 'transition:opacity 0.2s',
+            'line-height:1.6'
+        ].join(';');
+        document.body.appendChild(resetBtn);
+
+        resetBtn.addEventListener('mouseenter', function () {
+            resetBtn.style.background = 'rgba(0,0,0,0.7)';
+            resetBtn.style.color = '#fff';
+        });
+        resetBtn.addEventListener('mouseleave', function () {
+            resetBtn.style.background = 'rgba(0,0,0,0.45)';
+            resetBtn.style.color = 'rgba(255,255,255,0.7)';
+        });
+
+        resetBtn.addEventListener('click', function () {
+            try {
+                localStorage.removeItem('bristow_tp_pos_full');
+                localStorage.removeItem('bristow_tp_pos_mini');
+            } catch (e) {}
+            panel.style.left = '';
+            panel.style.top = '';
+            panel.style.right = '24px';
+            panel.style.bottom = '24px';
+            resetBtn.textContent = '✓ Reset';
+            setTimeout(function () { resetBtn.textContent = '↺ Reset Panel'; }, 1500);
+        });
+
+        var resetBtnTimer = null;
+        document.addEventListener('mousemove', function (e) {
+            clearTimeout(resetBtnTimer);
+
+            if (e.clientY <= 20) {
+                resetBtn.style.opacity = '1';
+            } else {
+                resetBtnTimer = setTimeout(function () {
+                    resetBtn.style.opacity = '0.4';
+                }, 600);
+            }
+        });
+
         function restorePosition(isMini) {
             try {
                 var key = isMini ? 'bristow_tp_pos_mini' : 'bristow_tp_pos_full';
@@ -820,6 +1594,139 @@
                     panel.style.bottom = '24px';
                 }
             } catch (e) {}
+        }
+
+
+        function undoLastAction() {
+            var btn = document.getElementById('tp-undo') || document.getElementById('tp-undo-m');
+            if (btn) btn.textContent = '...';
+
+            if (!undoStack.length) {
+                setFeedback('Nothing to undo', false);
+                updateUndoBtn();
+                return;
+            }
+
+            setFeedback('Undoing...', true);
+
+            var iDoc = getIframeDoc();
+            var iWin = getIframeWin();
+            if (!iDoc || !iWin) {
+                setFeedback('Could not access iframe', false);
+                updateUndoBtn();
+                return;
+            }
+
+            var inputId = undoStack[undoStack.length - 1];
+            var parentLineId = null;
+            var sourceLineId = null;
+
+            // Try to find the row via stored input ID
+            var input = iDoc.getElementById(inputId);
+            if (!input) {
+                setFeedback('Row already removed', false);
+                undoStack.pop();
+                updateUndoBtn();
+                updateTotalDisplay();
+                return;
+            }
+            if (input) {
+                var row = input.closest('tr.sourceLine');
+                if (row) {
+                    var delBtn = row.querySelector('button[onclick*="removeSourceLine"]');
+                    if (delBtn) {
+                        var onclick = delBtn.getAttribute('onclick');
+                        var match = onclick.match(/removeSourceLine\('([^']+)',\s*'([^']+)'/);
+                        if (match) {
+                            parentLineId = match[1];
+                            sourceLineId = match[2];
+                        }
+                    }
+                }
+            }
+
+            // If not found by ID, extract sourceLineId from the stored ID itself
+            if (!sourceLineId && inputId.indexOf('OrderLineSourceQuantity_') === 0) {
+                sourceLineId = inputId.replace('OrderLineSourceQuantity_', '');
+                // Find the button by matching the sourceLineId in onclick
+                var allDelBtns = iDoc.querySelectorAll('button[onclick*="removeSourceLine"][onclick*="' + sourceLineId + '"]');
+                if (allDelBtns.length > 0) {
+                    var btnEl = allDelBtns[allDelBtns.length - 1];
+                    var onclick = btnEl.getAttribute('onclick');
+                    var match = onclick.match(/removeSourceLine\('([^']+)',\s*'([^']+)'/);
+                    if (match) {
+                        parentLineId = match[1];
+                        sourceLineId = match[2];
+                    }
+                }
+            }
+
+            if (!parentLineId || !sourceLineId) {
+                setFeedback('Could not locate the line to undo', false);
+                undoStack.pop();
+                updateUndoBtn();
+                return;
+            }
+
+            // Call removeSourceLine via jQuery trigger or direct function call
+            try {
+                if (iWin.jQuery) {
+                    var targetBtn = iDoc.querySelector('button[onclick*="removeSourceLine(\'' + parentLineId + '\',\'' + sourceLineId + '\')"]');
+                    if (targetBtn) {
+                        iWin.jQuery(targetBtn).trigger('click');
+                    } else {
+                        iWin.removeSourceLine(parentLineId, sourceLineId);
+                    }
+                } else {
+                    iWin.removeSourceLine(parentLineId, sourceLineId);
+                }
+            } catch (e) {
+                setFeedback('Could not remove: ' + e.message, false);
+                updateUndoBtn();
+                return;
+            }
+
+            // Poll for the input to be removed from DOM
+            var waited = 0;
+            var pollTimer = setInterval(function () {
+                waited += 200;
+                var stillHere = iDoc.getElementById(inputId);
+                if (!stillHere || waited >= 5000) {
+                    clearInterval(pollTimer);
+                    updateMainLineTotal(parentLineId);
+                    setTimeout(function () {
+                        var qtyInput = iDoc.getElementById('OrderLineQuantity_' + parentLineId);
+                        var isZero = qtyInput && parseFloat(qtyInput.value) === 0;
+                        if (isZero) {
+                            var origConfirm = iWin.confirm;
+                            iWin.confirm = function () { return true; };
+                            try {
+                                iWin.removeLine(parentLineId);
+                            } catch (e) {
+                                var parentRow = iDoc.getElementById('OrderLine_' + parentLineId);
+                                if (parentRow) {
+                                    var rmBtn = parentRow.querySelector('button[onclick*="removeLine"]');
+                                    if (rmBtn) rmBtn.click();
+                                }
+                            }
+                            setTimeout(function () {
+                                iWin.confirm = origConfirm;
+                                clickSaveInIframe();
+                                setFeedback('↩ Undone ✓ (line removed)', true);
+                                undoStack.pop();
+                                updateUndoBtn();
+                                setTimeout(updateTotalDisplay, 600);
+                            }, 400);
+                        } else {
+                            clickSaveInIframe();
+                            setFeedback('↩ Undone ✓', true);
+                            undoStack.pop();
+                            updateUndoBtn();
+                            setTimeout(updateTotalDisplay, 600);
+                        }
+                    }, 400);
+                }
+            }, 200);
         }
 
         function setCollapsed(collapsed) {
@@ -888,7 +1795,7 @@
         });
 
         var isDragging = false, dragOffX, dragOffY;
-        var DRAG_IGNORE = { 'tp-close': 1, 'tp-mini': 1, 'tp-set': 1, 'tp-hours': 1, 'tp-tech-select': 1 };
+        var DRAG_IGNORE = { 'tp-close': 1, 'tp-mini': 1, 'tp-set': 1, 'tp-set-m': 1, 'tp-hours': 1, 'tp-hours-m': 1, 'tp-tech-select': 1, 'tp-undo': 1, 'tp-undo-m': 1 };
         panel.addEventListener('pointerdown', function (e) {
             if (DRAG_IGNORE[e.target.id]) return;
             isDragging = true;
@@ -967,6 +1874,19 @@
             handleLogHours(h);
         });
 
+        panel.addEventListener('click', function (e) {
+            var target = e.target;
+            if (target.id === 'tp-undo' || target.id === 'tp-undo-m') {
+                e.preventDefault();
+                undoLastAction();
+            } else if (target.parentNode && (target.parentNode.id === 'tp-undo' || target.parentNode.id === 'tp-undo-m')) {
+                e.preventDefault();
+                undoLastAction();
+            }
+        });
+
+        updateUndoBtn();
+
         document.getElementById('tp-mini').addEventListener('click', function () {
             var isMini = panel.classList.toggle('tp-mini');
             this.title       = isMini ? 'Expand' : 'Mini mode';
@@ -1031,6 +1951,7 @@
                 log('✅ Connected to Time Expanded iframe');
                 _iframe = teIframe;
                 waitForIframeReady(function () {
+                    loadTechList(function () {});
                     createPanel(readOnly);
                 });
             }, 25000, 500);
