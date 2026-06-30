@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      5.5
+// @version      5.6
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -245,6 +245,11 @@
     //  Toggle tech mode
     // ═════════════════════════════════════════════════════════════════════════
 
+    function restoreShelfFilter() {
+    document.querySelectorAll('#OrderHead_CustomFields_0__OptionId_listbox .k-list-item').forEach(function(li) {
+        li.style.display = '';
+    });
+}
     function toggleTechMode() {
         techMode = !techMode;
         localStorage.setItem(STORAGE_KEY, techMode);
@@ -274,6 +279,7 @@
                 unfreezeFields();
                 restoreSerialNumberRow();
                 restoreOrderLineHeaders();
+                restoreShelfFilter();
             }
         } catch(e) { console.warn('[TechMode] toggle error:', e); }
     }
