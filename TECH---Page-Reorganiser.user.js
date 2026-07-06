@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      5.6
+// @version      5.7
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -142,7 +142,8 @@
             css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_10__Label) { order: 13; }');
             css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_11__Label) { order: 14; }');
             css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_12__Label) { order: 15; }');
-            css.push('div.row:has(#HeaderInfo_Description),div.row:has(#HeaderInfo_JobNotes),div.row:has(.bom-line),div.row:has(input[value="Save"]),div.well-sm:has(a[data-target="#collapseDocs"]) { display: none !important; }');
+            // Hide the Uploads section
+            //css.push('div.row:has(#HeaderInfo_Description),div.row:has(#HeaderInfo_JobNotes),div.row:has(.bom-line),div.row:has(input[value="Save"]),div.well-sm:has(a[data-target="#collapseDocs"]) { display: none !important; }');
         }
         staticCSS = css.join('\n');
         return staticCSS;
