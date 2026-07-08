@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      5.0
+// @version      5.1
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing. Linked tables share columns, one-way tolerance sync (master→slave), custom unit input, sheet mode keeps pre/post data independent. Web Serial torque-tester input embedded in each table's action bar: click a cell, pull the wrench, value fills and auto-advances. Row deletion broadcasts to linked tables. Serial framing matches Norbar TTT factory defaults (9600 baud, 8 data/2 stop bits, no parity, CR-only line ending).
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -401,7 +401,9 @@
 
         let group = LINK_GROUPS[groupId];
         if (!group) {
-            const cardMode = isCardModeHeaders(existing.headers, config.columns);
+            // New/blank orders have no saved headers to detect a mode from — default those
+            // to Card mode. Only fall back to Sheet mode when existing data actually implies it.
+            const cardMode = existing.headers ? isCardModeHeaders(existing.headers, config.columns) : true;
             const cols = (existing.headers && existing.headers.length) ? existing.headers.slice() : config.columns.slice();
             const gaugeSpecs = (existing.gaugeSpecs && existing.gaugeSpecs.length)
                 ? existing.gaugeSpecs
