@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      5.1
-// @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing. Linked tables share columns, one-way tolerance sync (master→slave), custom unit input, sheet mode keeps pre/post data independent. Web Serial torque-tester input embedded in each table's action bar: click a cell, pull the wrench, value fills and auto-advances. Row deletion broadcasts to linked tables. Serial framing matches Norbar TTT factory defaults (9600 baud, 8 data/2 stop bits, no parity, CR-only line ending).
+// @version      5.7
+// @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing. Linked tables share columns, one-way tolerance sync (master→slave), custom unit input, sheet mode keeps pre/post data independent. Web Serial torque-tester input embedded in each table's action bar: click a cell, pull the wrench, value fills and auto-advances. Row deletion broadcasts to linked tables. Serial framing set to 1 stop bit matching this unit's proven-working config. Port is now cleanly closed on page navigation/refresh, with a short automatic retry on reconnect if the adapter's driver needs a moment to release — fixes "Open failed" and silently-connected-but-no-data states after refreshing.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
@@ -18,19 +18,19 @@
         {
             textareaId: 'OrderHead_CustomFields_10__Text',
             label: 'Calibration Data',
-            columns: ['TEST POINT', 'UUT', '% ERROR'],
+            columns: ['TEST POINT', 'UUT', '% ERROR', 'PASS/FAIL'],
             defaultRows: 5,
         },
         {
             textareaId: 'OrderHead_CustomFields_11__Text',
             label: 'Calibration Data (cont.)',
-            columns: ['TEST POINT', 'UUT', '% ERROR'],
+            columns: ['TEST POINT', 'UUT', '% ERROR', 'PASS/FAIL'],
             defaultRows: 5,
             linkedFrom: 'OrderHead_CustomFields_10__Text',
         },
     ];
 
-    const MAX_COLS = 6; // hard cap so the printed table still fits a PDF page
+    const MAX_COLS = 8; // 4 columns per gauge (Gauge/UUT/% ERROR/PASS/FAIL), up to 2 gauges
     // ───────────────────────────────────────────────────────────────────────────
 
     const _style = document.createElement('style');
@@ -67,6 +67,8 @@
         .cal-table tbody td input:focus { background: #fffbe6; box-shadow: inset 0 0 0 2px #337ab7; border-radius: 2px; }
         .cal-table tbody td input.cal-calc-cell { background: #f8f9fa; color: #555; cursor: default; }
         .cal-table tbody td input.cal-formula-cell { background: #f0f7ff; }
+        .cal-table tbody td input.cal-pass { background: #d4edda; color: #155724; font-weight: 600; cursor: default; }
+        .cal-table tbody td input.cal-fail { background: #f8d7da; color: #721c24; font-weight: 600; cursor: default; }
         .cal-table tbody td input[readonly] { background: #f0f0f0 !important; color: #999; cursor: default; }
         .cal-table tbody td.row-num {
             color: #aaa; font-size: 11px; text-align: center; width: 26px; padding: 0;
@@ -132,6 +134,7 @@
             border-radius: 3px; width: 140px; color: #001c40;
         }
         .cal-hint { font-size: 11px; color: #999; }
+        .cal-tol-cb { width: 16px; height: 16px; vertical-align: middle; cursor: pointer; }
         .cal-head-edit {
             background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.5);
             border-radius: 2px; color: #fff; font-size: 12px;
@@ -172,6 +175,14 @@
             }
             .cal-table tbody td { border: 1px solid #ccc !important; }
             .cal-table tbody td.row-num { border-right: 2px solid #ccc !important; }
+            .cal-table tbody td input.cal-pass {
+                background: #d4edda !important; color: #155724 !important;
+                -webkit-print-color-adjust: exact; print-color-adjust: exact;
+            }
+            .cal-table tbody td input.cal-fail {
+                background: #f8d7da !important; color: #721c24 !important;
+                -webkit-print-color-adjust: exact; print-color-adjust: exact;
+            }
             .cal-sheet-table th {
                 background: #f1f3f4 !important; color: #444 !important;
                 -webkit-print-color-adjust: exact; print-color-adjust: exact;
@@ -195,10 +206,7 @@
                     const errName = gaugeSpecs.length === 1 ? '% ERROR' : '% ERROR ' + (gi + 1);
                     const fsErrName = gaugeSpecs.length === 1 ? '% FS ERROR' : '% FS ERROR ' + (gi + 1);
                     if (col === errName) {
-                        const fsP = parseFloat(spec.fsPct);
-                        const fsV = parseFloat(spec.fsVal);
-                        if (spec.fsPct && !isNaN(fsP) && fsP !== 0 &&
-                            spec.fsVal && !isNaN(fsV) && fsV !== 0) {
+                        if (spec.tolMode === 'section') {
                             return fsErrName;
                         }
                     }
@@ -214,29 +222,44 @@
         const sep = '+' + widths.map(w => '-'.repeat(w + 2)).join('+') + '+';
         const fmt = row =>
             '|' + displayCols.map((_, ci) => ' ' + String(row[ci] || '').padEnd(widths[ci]) + ' ').join('|') + '|';
-        const lines = [];
+        const specParts = [];
         if (gaugeSpecs && gaugeSpecs.length > 0) {
             gaugeSpecs.forEach((spec, i) => {
-                const parts = [];
-                if (spec.unit) parts.push('Unit: ' + spec.unit);
-                const fsP = parseFloat(spec.fsPct);
-                const fsV = parseFloat(spec.fsVal);
-                if (spec.fsPct && !isNaN(fsP) && fsP !== 0) parts.push('%FS: ' + spec.fsPct);
-                if (spec.fsVal && !isNaN(fsV) && fsV !== 0) parts.push('#FS: ' + spec.fsVal);
-                if (spec.serial) parts.push('SN: ' + spec.serial);
-                if (parts.length > 0) {
-                    if (gaugeSpecs.length > 1) lines.push('Gauge ' + (i + 1));
-                    lines.push(parts.join(', '));
-                }
+                const p = ['Gauge ' + (i + 1)];
+                if (spec.serial) p.push('SN: ' + spec.serial);
+                if (spec.unit) p.push('Unit: ' + spec.unit);
+                specParts.push(p.join(' - '));
             });
         }
-        const header = lines.length ? lines.join('\n') + '\n' : '';
-        return header + [sep, fmt(displayCols), sep, ...rows.map(fmt), sep].join('\n');
+        // Center each gauge label over its column section
+        const totalW = sep.length - 1;
+        let header = '';
+        if (specParts.length === 1) {
+            const pad = Math.max(0, totalW - specParts[0].length);
+            header = ' '.repeat(Math.floor(pad / 2)) + specParts[0] + '\n';
+        } else if (specParts.length > 1) {
+            const sectionW = Math.floor(totalW / specParts.length);
+            header = specParts.map(label => {
+                const pad = Math.max(0, sectionW - label.length);
+                return ' '.repeat(Math.floor(pad / 2)) + label;
+            }).join('') + '\n';
+        }
+        const nonEmptyRows = rows.filter(r => r.some(c => c.trim() !== ''));
+        return header + [sep, fmt(displayCols), sep, ...nonEmptyRows.map(fmt), sep].join('\n');
+    }
+
+    // ── localStorage helpers for gaugeSpecs (tolerance, serial, unit) ──────────
+    const _gaugeSpecsStore = {};
+    function saveGaugeSpecs(textareaId, specs) {
+        try { localStorage.setItem('cal_specs_' + textareaId, JSON.stringify(specs)); } catch(e) {}
+    }
+    function loadGaugeSpecs(textareaId) {
+        try { const s = localStorage.getItem('cal_specs_' + textareaId); return s ? JSON.parse(s) : null; } catch(e) { return null; }
     }
 
     // ── Restore previously saved table data ──────────────────────────────────
     function deserialize(text) {
-        if (!text || !text.includes('|')) return { rows: null, headers: null, gaugeSpecs: [{ unit: '', fsPct: '', fsVal: '', serial: '' }] };
+        if (!text || !text.includes('|')) return { rows: null, headers: null, gaugeSpecs: [{ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '', tolHigh: '', tolSplit: '' }] };
         const lines = text.split('\n');
         const gaugeSpecs = [];
         const dataLines = lines.filter(l => /^\|/.test(l));
@@ -254,23 +277,45 @@
         }
 
         // Parse compact gauge spec lines
-        // Format A (single): "Unit: Degrees, SN: 123"
-        // Format B (multi):  "Gauge 1\nUnit: Degrees, SN: 123\nGauge 2\nUnit: VDC, %FS: 1, #FS: 300, SN: 456"
+        // New format (v5.7): "Gauge 1 - SN: 123 - Unit: PSI\tGauge 2 - SN: 456 - Unit: LBS"
+        // Old format:        "Gauge 1\nUnit: Degrees, SN: 123\nGauge 2\nUnit: VDC, %FS: 1, #FS: 300, SN: 456"
         const specLines = lines.filter(l => !l.startsWith('|') && !l.startsWith('+'));
         const gaugeBlocks = [];
-        let currentBlock = null;
 
         for (const line of specLines) {
-            const gaugeMatch = line.match(/^Gauge (\d+)$/);
-            if (gaugeMatch) {
-                currentBlock = { gauge: parseInt(gaugeMatch[1], 10), parts: {} };
-                gaugeBlocks.push(currentBlock);
+            // New format: tab-separated gauge blocks, each "Gauge N - Key: Val - Key: Val"
+            if (line.includes('Gauge') && line.includes(' - ')) {
+                const blocks = line.split('\t');
+                for (const block of blocks) {
+                    const trimmed = block.trim();
+                    const gm = trimmed.match(/^Gauge (\d+)/);
+                    if (!gm) continue;
+                    const gb = { gauge: parseInt(gm[1], 10), parts: {} };
+                    const parts = trimmed.split(' - ');
+                    for (let j = 1; j < parts.length; j++) {
+                        const kv = parts[j].split(': ');
+                        if (kv.length === 2) {
+                            const key = kv[0].trim();
+                            const val = kv[1].trim();
+                            if (key === 'Unit') gb.parts.unit = val;
+                            else if (key === '%FS') gb.parts.fsPct = val;
+                            else if (key === '#FS') gb.parts.fsVal = val;
+                            else if (key === 'SN') gb.parts.serial = val;
+                            else if (key === 'Tol') gb.parts.tolerance = val;
+                            else if (key === 'Low') { gb.parts.tolLow = val; gb.parts.tolMode = 'section'; }
+                            else if (key === 'High') gb.parts.tolHigh = val;
+                            else if (key === 'Split') gb.parts.tolSplit = val;
+                        }
+                    }
+                    gaugeBlocks.push(gb);
+                }
             } else if (line.includes(':')) {
+                // Old format fallback
+                let currentBlock = gaugeBlocks.length ? gaugeBlocks[gaugeBlocks.length - 1] : null;
                 if (!currentBlock) {
                     currentBlock = { gauge: 1, parts: {} };
                     gaugeBlocks.push(currentBlock);
                 }
-                // Parse comma-separated "Key: Value" pairs
                 line.split(',').forEach(part => {
                     const kv = part.trim().split(': ');
                     if (kv.length === 2) {
@@ -280,6 +325,11 @@
                         else if (key === '%FS') currentBlock.parts.fsPct = val;
                         else if (key === '#FS') currentBlock.parts.fsVal = val;
                         else if (key === 'SN') currentBlock.parts.serial = val;
+                        else if (key === 'Tol') currentBlock.parts.tolerance = val;
+                        else if (key === 'TolMode') currentBlock.parts.tolMode = val;
+                        else if (key === 'TolLow') currentBlock.parts.tolLow = val;
+                        else if (key === 'TolHigh') currentBlock.parts.tolHigh = val;
+                        else if (key === 'TolSplit') currentBlock.parts.tolSplit = val;
                     }
                 });
             }
@@ -292,7 +342,12 @@
                 unit: block ? block.parts.unit || '' : '',
                 fsPct: block ? block.parts.fsPct || '' : '',
                 fsVal: block ? block.parts.fsVal || '' : '',
-                serial: block ? block.parts.serial || '' : ''
+                serial: block ? block.parts.serial || '' : '',
+                tolerance: block ? block.parts.tolerance || '' : '',
+                tolMode: block ? block.parts.tolMode || 'simple' : 'simple',
+                tolLow: block ? block.parts.tolLow || '' : '',
+                tolHigh: block ? block.parts.tolHigh || '' : '',
+                tolSplit: block ? block.parts.tolSplit || '' : ''
             });
         }
 
@@ -318,6 +373,60 @@
         if (isNaN(n)) return '';
         if (n === 0) return '0';
         return parseFloat(n.toFixed(4)).toString();
+    }
+
+    // Determine PASS/FAIL: |error| <= tolerance → PASS, otherwise FAIL
+    // In 'section' mode, tolerance depends on where TP falls within the range.
+    function passFail(errorStr, spec, tpStr) {
+        if (spec.tolMode === 'section') {
+            const tol = sectionTolerance(spec, tpStr);
+            if (tol === null) return '';
+            const err = parseFloat(errorStr);
+            if (isNaN(err)) return '';
+            return Math.abs(err) <= tol ? 'PASS' : 'FAIL';
+        }
+        // Simple mode
+        if (!spec.tolerance || spec.tolerance.trim() === '') return '';
+        const tol = parseFloat(spec.tolerance);
+        if (isNaN(tol) || tol <= 0) return '';
+        const err = parseFloat(errorStr);
+        if (isNaN(err)) return '';
+        return Math.abs(err) <= tol ? 'PASS' : 'FAIL';
+    }
+
+    // Calculate section-based tolerance from %FS field.
+    // Single number (e.g. "3") → ±3% of full scale across the entire range.
+    // Split format (e.g. "3-2-3") → divide range into N sections, each with
+    // its own tolerance as a % of full scale.
+    // Lower-bound inclusive: TP=10 in 0-30 with 3 sections → section 2.
+    function sectionTolerance(spec, tpStr) {
+        const tp = parseFloat(tpStr);
+        const low = parseFloat(spec.tolLow);
+        const high = parseFloat(spec.tolHigh);
+        const fsVal = high;
+        if (isNaN(tp) || isNaN(low) || isNaN(high) || isNaN(fsVal) || fsVal === 0) return null;
+        if (high <= low) return null;
+        const raw = (spec.tolSplit || '').trim();
+        if (!raw) return null;
+        const parts = raw.split('-').map(s => parseFloat(s.trim()));
+        if (parts.length === 1 && !isNaN(parts[0])) {
+            return parts[0];
+        }
+        if (parts.length < 2 || parts.some(isNaN)) return null;
+        const n = parts.length;
+        const span = high - low;
+        const sectionSize = span / n;
+        let idx = Math.floor((tp - low) / sectionSize);
+        if (idx < 0) idx = 0;
+        if (idx >= n) idx = n - 1;
+        return parts[idx];
+    }
+
+    // Toggle cal-pass / cal-fail classes on a PASS/FAIL cell input
+    function togglePfClass(inp, val) {
+        if (!inp) return;
+        inp.classList.toggle('cal-pass', val === 'PASS');
+        inp.classList.toggle('cal-fail', val === 'FAIL');
     }
 
     // ── Formula helpers ─────────────────────────────────────────────────────
@@ -371,11 +480,17 @@
     function isCardModeHeaders(headers, baseColumns) {
         if (!headers || headers.length === 0) return false;
         if (headers.length === baseColumns.length && headers.every((h, i) => h === baseColumns[i])) return true;
+        // 3-column pattern: Gauge/UUT/% ERROR (legacy)
         if (headers.length >= 3 && headers.length % 3 === 0) {
             for (let i = 0; i < headers.length; i += 3) {
-                const h1 = headers[i + 1];
-                const h2 = headers[i + 2];
-                if (!/UUT/i.test(h1) || !/ERROR/i.test(h2)) return false;
+                if (!/UUT/i.test(headers[i + 1]) || !/ERROR/i.test(headers[i + 2])) return false;
+            }
+            return true;
+        }
+        // 4-column pattern: Gauge/UUT/% ERROR/PASS/FAIL
+        if (headers.length >= 4 && headers.length % 4 === 0) {
+            for (let i = 0; i < headers.length; i += 4) {
+                if (!/UUT/i.test(headers[i + 1]) || !/ERROR/i.test(headers[i + 2])) return false;
             }
             return true;
         }
@@ -401,13 +516,18 @@
 
         let group = LINK_GROUPS[groupId];
         if (!group) {
-            // New/blank orders have no saved headers to detect a mode from — default those
-            // to Card mode. Only fall back to Sheet mode when existing data actually implies it.
             const cardMode = existing.headers ? isCardModeHeaders(existing.headers, config.columns) : true;
             const cols = (existing.headers && existing.headers.length) ? existing.headers.slice() : config.columns.slice();
-            const gaugeSpecs = (existing.gaugeSpecs && existing.gaugeSpecs.length)
-                ? existing.gaugeSpecs
-                : [{ unit: '', fsPct: '', fsVal: '', serial: '' }];
+            // Try localStorage first, then textarea, then default
+            const savedSpecs = loadGaugeSpecs(config.textareaId);
+            let gaugeSpecs;
+            if (savedSpecs && savedSpecs.length) {
+                gaugeSpecs = savedSpecs;
+            } else if (existing.gaugeSpecs && existing.gaugeSpecs.length) {
+                gaugeSpecs = existing.gaugeSpecs;
+            } else {
+                gaugeSpecs = [{ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '', tolHigh: '', tolSplit: '' }];
+            }
             group = LINK_GROUPS[groupId] = {
                 cols, gaugeSpecs,
                 viewMode: cardMode ? 'card' : 'sheet',
@@ -460,7 +580,7 @@
         }
 
         function hasAnyData() {
-            if (gaugeSpecs.some(s => s.unit || s.fsPct || s.fsVal || s.serial)) return true;
+            if (gaugeSpecs.some(s => s.unit || s.fsPct || s.fsVal || s.serial || s.tolerance)) return true;
             return rows.some(row => row.some(c => c && c.trim() !== ''));
         }
 
@@ -485,19 +605,29 @@
             if (group.viewMode !== 'sheet') rows.forEach((_, ri) => calcError(ri));
             if (group.viewMode === 'card') {
                 gaugeSpecs.forEach((spec, gi) => {
-                    let errCol;
-                    if (gaugeSpecs.length === 1 && gi === 0) errCol = cols.indexOf('% ERROR');
-                    else errCol = cols.indexOf('% ERROR ' + (gi + 1));
+                    let errCol, pfCol;
+                    if (gaugeSpecs.length === 1 && gi === 0) {
+                        errCol = cols.indexOf('% ERROR');
+                        pfCol = cols.indexOf('PASS/FAIL');
+                    } else {
+                        errCol = cols.indexOf('% ERROR ' + (gi + 1));
+                        pfCol = cols.indexOf('PASS/FAIL ' + (gi + 1));
+                    }
                     if (errCol < 0) return;
                     rows.forEach((row, ri) => {
                         const inp = tableWrap.querySelector(`input[data-ri="${ri}"][data-ci="${errCol}"]`);
                         if (inp) inp.value = row[errCol] || '';
+                        if (pfCol >= 0) {
+                            const pfInp = tableWrap.querySelector(`input[data-ri="${ri}"][data-ci="${pfCol}"]`);
+                            if (pfInp) { pfInp.value = row[pfCol] || ''; togglePfClass(pfInp, row[pfCol]); }
+                        }
                     });
                 });
             }
             refreshFormulaDisplay();
             const resolved = rows.map((row, ri) => row.map((_, ci) => cellVal(ri, ci)));
             ta.value = hasAnyData() ? serialize(resolved, cols, null, null, null, null, gaugeSpecs) : '';
+            saveGaugeSpecs(config.textareaId, gaugeSpecs);
             ta.dispatchEvent(new Event('change', { bubbles: true }));
             ta.dispatchEvent(new Event('input',  { bubbles: true }));
             // Master pushes TEST POINT / Gauge N values into any linked slave table
@@ -520,81 +650,134 @@
 
         function calcError(ri) {
             gaugeSpecs.forEach((spec, gi) => {
-                let tpCol, uutCol, errCol;
+                let tpCol, uutCol, errCol, pfCol;
                 if (gaugeSpecs.length === 1 && gi === 0) {
                     tpCol = cols.indexOf('TEST POINT');
                     uutCol = cols.indexOf('UUT');
                     errCol = cols.indexOf('% ERROR');
+                    pfCol = cols.indexOf('PASS/FAIL');
                 } else {
                     tpCol = cols.indexOf('Gauge ' + (gi + 1));
                     uutCol = cols.indexOf('UUT ' + (gi + 1));
                     errCol = cols.indexOf('% ERROR ' + (gi + 1));
+                    pfCol = cols.indexOf('PASS/FAIL ' + (gi + 1));
                 }
                 if (tpCol < 0 || uutCol < 0 || errCol < 0) return;
                 const tp  = parseFloat(cellVal(ri, tpCol));
                 const uut = parseFloat(cellVal(ri, uutCol));
-                if (isNaN(tp) || isNaN(uut)) { rows[ri][errCol] = ''; return; }
-                const fsPct = parseFloat(spec.fsPct);
-                const fsVal = parseFloat(spec.fsVal);
-                if (!isNaN(fsPct) && !isNaN(fsVal) && fsVal !== 0) {
+                if (isNaN(tp) || isNaN(uut)) { rows[ri][errCol] = ''; if (pfCol >= 0) rows[ri][pfCol] = ''; return; }
+                // Error formula: section mode uses #FS (tolHigh) as denominator;
+                // simple mode uses old %FS/#FS fields if present, else test point.
+                let fsVal = NaN;
+                if (spec.tolMode === 'section') {
+                    fsVal = parseFloat(spec.tolHigh);
+                } else {
+                    const fp = parseFloat(spec.fsPct);
+                    const fv = parseFloat(spec.fsVal);
+                    if (!isNaN(fp) && !isNaN(fv) && fv !== 0) fsVal = fv;
+                }
+                if (!isNaN(fsVal) && fsVal !== 0) {
                     rows[ri][errCol] = formatError(((uut - tp) / fsVal) * 100);
                 } else if (tp !== 0) {
                     rows[ri][errCol] = formatError(((uut - tp) / tp) * 100);
                 } else {
                     rows[ri][errCol] = '';
                 }
+                if (pfCol >= 0) rows[ri][pfCol] = passFail(rows[ri][errCol], spec, cellVal(ri, tpCol));
             });
         }
 
         function refreshErrorCols() {
             if (group.viewMode === 'sheet') return;
             gaugeSpecs.forEach((spec, gi) => {
-                let errCol;
-                if (gaugeSpecs.length === 1 && gi === 0) errCol = cols.indexOf('% ERROR');
-                else errCol = cols.indexOf('% ERROR ' + (gi + 1));
+                let errCol, pfCol;
+                if (gaugeSpecs.length === 1 && gi === 0) {
+                    errCol = cols.indexOf('% ERROR');
+                    pfCol = cols.indexOf('PASS/FAIL');
+                } else {
+                    errCol = cols.indexOf('% ERROR ' + (gi + 1));
+                    pfCol = cols.indexOf('PASS/FAIL ' + (gi + 1));
+                }
                 if (errCol < 0) return;
                 rows.forEach((_, ri) => {
                     calcError(ri);
                     const inp = tableWrap.querySelector(`input[data-ri="${ri}"][data-ci="${errCol}"]`);
                     if (inp) inp.value = rows[ri][errCol] || '';
+                    if (pfCol >= 0) {
+                        const pfInp = tableWrap.querySelector(`input[data-ri="${ri}"][data-ci="${pfCol}"]`);
+                        if (pfInp) { pfInp.value = rows[ri][pfCol] || ''; togglePfClass(pfInp, rows[ri][pfCol]); }
+                    }
                 });
             });
         }
 
         function nextEditable(c, dir, isSheet) {
-            const errorCols = new Set();
+            const skipCols = new Set();
             if (!isSheet) {
                 gaugeSpecs.forEach((spec, gi) => {
-                    if (gaugeSpecs.length === 1 && gi === 0) errorCols.add(cols.indexOf('% ERROR'));
-                    else errorCols.add(cols.indexOf('% ERROR ' + (gi + 1)));
+                    if (gaugeSpecs.length === 1 && gi === 0) {
+                        skipCols.add(cols.indexOf('% ERROR'));
+                        skipCols.add(cols.indexOf('PASS/FAIL'));
+                    } else {
+                        skipCols.add(cols.indexOf('% ERROR ' + (gi + 1)));
+                        skipCols.add(cols.indexOf('PASS/FAIL ' + (gi + 1)));
+                    }
                 });
             }
             let nc = c + dir;
-            while (nc >= 0 && nc < cols.length && errorCols.has(nc)) nc += dir;
+            while (nc >= 0 && nc < cols.length && skipCols.has(nc)) nc += dir;
             return nc;
         }
 
         function calcRowError(ri) {
             if (group.viewMode === 'sheet') return;
             gaugeSpecs.forEach((spec, gi) => {
-                let tpCol, uutCol, errCol;
+                let tpCol, uutCol, errCol, pfCol;
                 if (gaugeSpecs.length === 1 && gi === 0) {
                     tpCol = cols.indexOf('TEST POINT');
                     uutCol = cols.indexOf('UUT');
                     errCol = cols.indexOf('% ERROR');
+                    pfCol = cols.indexOf('PASS/FAIL');
                 } else {
                     tpCol = cols.indexOf('Gauge ' + (gi + 1));
                     uutCol = cols.indexOf('UUT ' + (gi + 1));
                     errCol = cols.indexOf('% ERROR ' + (gi + 1));
+                    pfCol = cols.indexOf('PASS/FAIL ' + (gi + 1));
                 }
                 if (tpCol < 0 || uutCol < 0 || errCol < 0) return;
                 const errInp = tableWrap.querySelector(`input[data-ri="${ri}"][data-ci="${errCol}"]`);
                 const tp  = parseFloat(cellVal(ri, tpCol));
                 const uut = parseFloat(cellVal(ri, uutCol));
-                const err = (!isNaN(tp) && !isNaN(uut) && tp !== 0)
-                    ? formatError(((uut - tp) / tp) * 100) : '';
+                if (isNaN(tp) || isNaN(uut)) {
+                    rows[ri][errCol] = '';
+                    if (errInp) errInp.value = '';
+                    if (pfCol >= 0) { rows[ri][pfCol] = ''; const pfInp = tableWrap.querySelector(`input[data-ri="${ri}"][data-ci="${pfCol}"]`); if (pfInp) pfInp.value = ''; }
+                    return;
+                }
+                let fsVal = NaN;
+                if (spec.tolMode === 'section') {
+                    fsVal = parseFloat(spec.tolHigh);
+                } else {
+                    const fp = parseFloat(spec.fsPct);
+                    const fv = parseFloat(spec.fsVal);
+                    if (!isNaN(fp) && !isNaN(fv) && fv !== 0) fsVal = fv;
+                }
+                let err;
+                if (!isNaN(fsVal) && fsVal !== 0) {
+                    err = formatError(((uut - tp) / fsVal) * 100);
+                } else if (tp !== 0) {
+                    err = formatError(((uut - tp) / tp) * 100);
+                } else {
+                    err = '';
+                }
                 rows[ri][errCol] = err;
                 if (errInp) errInp.value = err;
+                if (pfCol >= 0) {
+                    const pf = passFail(err, spec, cellVal(ri, tpCol));
+                    rows[ri][pfCol] = pf;
+                    const pfInp = tableWrap.querySelector(`input[data-ri="${ri}"][data-ci="${pfCol}"]`);
+                    if (pfInp) { pfInp.value = pf; togglePfClass(pfInp, pf); }
+                }
             });
         }
 
@@ -617,12 +800,17 @@
 
             const { ri, ci } = pos;
             const C = cols.length;
-            const errorCols = new Set();
+            const skipCols = new Set();
             const isSheet = group.viewMode === 'sheet';
             if (!isSheet) {
                 gaugeSpecs.forEach((spec, gi) => {
-                    if (gaugeSpecs.length === 1 && gi === 0) errorCols.add(cols.indexOf('% ERROR'));
-                    else errorCols.add(cols.indexOf('% ERROR ' + (gi + 1)));
+                    if (gaugeSpecs.length === 1 && gi === 0) {
+                        skipCols.add(cols.indexOf('% ERROR'));
+                        skipCols.add(cols.indexOf('PASS/FAIL'));
+                    } else {
+                        skipCols.add(cols.indexOf('% ERROR ' + (gi + 1)));
+                        skipCols.add(cols.indexOf('PASS/FAIL ' + (gi + 1)));
+                    }
                 });
             }
 
@@ -637,7 +825,7 @@
                     } else {
                         calcRowError(ri);
                         let firstCol = 0;
-                        while (firstCol < C && errorCols.has(firstCol)) firstCol++;
+                        while (firstCol < C && skipCols.has(firstCol)) firstCol++;
                         if (ri + 1 >= rows.length) addRow();
                         focusCell(ri + 1, firstCol);
                     }
@@ -648,7 +836,7 @@
                     } else if (ri > 0) {
                         calcRowError(ri);
                         let lastCol = C - 1;
-                        while (lastCol >= 0 && errorCols.has(lastCol)) lastCol--;
+                        while (lastCol >= 0 && skipCols.has(lastCol)) lastCol--;
                         if (lastCol >= 0) focusCell(ri - 1, lastCol);
                     }
                 }
@@ -658,7 +846,7 @@
                 e.stopImmediatePropagation();
                 calcRowError(ri);
                 let targetCol = tabAnchorCol;
-                if (!isSheet && errorCols.has(targetCol)) targetCol = nextEditable(targetCol, 1, isSheet);
+                if (!isSheet && skipCols.has(targetCol)) targetCol = nextEditable(targetCol, 1, isSheet);
                 if (ri + 1 >= rows.length) addRow();
                 focusCell(ri + 1, targetCol);
 
@@ -693,11 +881,16 @@
 
         // ── Cell input factory ──────────────────────────────────────────────
         function makeInput(ri, ci, isSheet) {
-            const errorCols = new Set();
+            const calcCols = new Set();
             if (!isSheet) {
                 gaugeSpecs.forEach((spec, gi) => {
-                    if (gaugeSpecs.length === 1 && gi === 0) errorCols.add(cols.indexOf('% ERROR'));
-                    else errorCols.add(cols.indexOf('% ERROR ' + (gi + 1)));
+                    if (gaugeSpecs.length === 1 && gi === 0) {
+                        calcCols.add(cols.indexOf('% ERROR'));
+                        calcCols.add(cols.indexOf('PASS/FAIL'));
+                    } else {
+                        calcCols.add(cols.indexOf('% ERROR ' + (gi + 1)));
+                        calcCols.add(cols.indexOf('PASS/FAIL ' + (gi + 1)));
+                    }
                 });
             }
             const inp = document.createElement('input');
@@ -709,8 +902,16 @@
             const raw = rows[ri][ci] || '';
             inp.value = (typeof raw === 'string' && raw.startsWith('=')) ? evalFormula(raw, rows, cols, ri, ci) : raw;
 
-            const isCalcCell = !isSheet && errorCols.has(ci);
+            const isCalcCell = !isSheet && calcCols.has(ci);
             if (isCalcCell) inp.classList.add('cal-calc-cell');
+            // PASS/FAIL coloring
+            if (!isSheet) {
+                const colName = cols[ci] || '';
+                if (/^PASS\/FAIL(\s*\d+)?$/.test(colName)) {
+                    if (raw === 'PASS') inp.classList.add('cal-pass');
+                    else if (raw === 'FAIL') inp.classList.add('cal-fail');
+                }
+            }
             if (typeof raw === 'string' && raw.startsWith('=')) inp.classList.add('cal-formula-cell');
 
             inp.addEventListener('mousedown', () => { tabAnchorCol = ci; });
@@ -804,9 +1005,15 @@
             thNum.className = 'cal-th-fixed'; thNum.style.width = '26px';
             hrow.appendChild(thNum);
 
+            const anySection = gaugeSpecs.some(s => s.tolMode === 'section');
             cols.forEach((col, ci) => {
                 const th = document.createElement('th');
-                th.textContent = col; th.title = 'Double-click to rename';
+                let displayCol = col;
+                if (anySection) {
+                    const m = col.match(/^(% ERROR)(\s*\d+)?$/);
+                    if (m) displayCol = '% FS ERROR' + (m[2] || '');
+                }
+                th.textContent = displayCol; th.title = 'Double-click to rename';
                 makeRenameHandler(th, ci, col, false);
                 hrow.appendChild(th);
             });
@@ -875,7 +1082,7 @@
 
         function updateColumnButtons() {
             addColBtn.disabled = cols.length >= MAX_COLS;
-            addGaugeBtn.disabled = cols.length + 3 > MAX_COLS;
+            addGaugeBtn.disabled = cols.length + 4 > MAX_COLS;
             delColBtn.disabled = cols.length <= 1;
         }
 
@@ -884,6 +1091,7 @@
             wrapper.classList.add(group.viewMode === 'sheet' ? 'cal-mode-sheet' : 'cal-mode-card');
             cardBtn.classList.toggle('active', group.viewMode === 'card');
             sheetBtn.classList.toggle('active', group.viewMode === 'sheet');
+            specWrap.style.display = group.viewMode === 'sheet' ? 'none' : '';
             if (group.viewMode === 'sheet') renderSheet();
             else renderCard();
             updateErrorHeaders();
@@ -927,6 +1135,21 @@
                 label.textContent = gaugeSpecs.length > 1 ? 'Gauge ' + (gi + 1) : 'Specs';
                 row.appendChild(label);
 
+                // S/N first
+                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: 'S/N:' }));
+                const snInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: 'Serial #' });
+                snInp.style.cssText = 'width:110px;font-size:12px;'; snInp.value = spec.serial || '';
+                snInp.addEventListener('input', () => {
+                    spec.serial = snInp.value; sync();
+                    if (!isSlave) {
+                        group.widgets.forEach(w => {
+                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].serial = snInp.value; }
+                        });
+                    }
+                });
+                row.appendChild(snInp);
+
+                // Unit
                 const unitDatalistId = 'cal-unit-dl-' + gi;
                 const unitInp = document.createElement('input');
                 unitInp.className = 'cal-col-input';
@@ -948,49 +1171,86 @@
                     spec.unit = unitInp.value; sync();
                     if (!isSlave) {
                         group.widgets.forEach(w => {
-                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].unit = unitInp.value; w.buildSpecRows(); }
+                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].unit = unitInp.value; }
                         });
                     }
                 });
 
-                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: '%FS:' }));
-                const fsInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '0' });
-                fsInp.style.cssText = 'width:50px;font-size:12px;'; fsInp.value = spec.fsPct || '';
-                fsInp.addEventListener('input', () => {
-                    spec.fsPct = fsInp.value; updateErrorHeaders(); sync();
+                // ── Tolerance section ──
+                const isSection = spec.tolMode === 'section';
+
+                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: '%TOL±:' }));
+                const tolInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '#' });
+                tolInp.style.cssText = 'width:50px;font-size:12px;'; tolInp.value = spec.tolerance || '';
+                tolInp.disabled = isSection;
+                tolInp.addEventListener('input', () => {
+                    spec.tolerance = tolInp.value; sync();
                     if (!isSlave) {
                         group.widgets.forEach(w => {
-                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].fsPct = fsInp.value; w.updateErrorHeadersUI(); w.buildSpecRows(); }
+                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].tolerance = tolInp.value; }
                         });
                     }
                 });
-                row.appendChild(fsInp);
+                row.appendChild(tolInp);
+
+                const tolCheckbox = document.createElement('input');
+                tolCheckbox.type = 'checkbox'; tolCheckbox.checked = isSection;
+                tolCheckbox.className = 'cal-tol-cb';
+                tolCheckbox.title = 'Section-based tolerance (% of full scale) — also switches column to %FS ERROR';
+                tolCheckbox.addEventListener('change', () => {
+                    spec.tolMode = tolCheckbox.checked ? 'section' : 'simple'; sync();
+                    if (!isSlave) {
+                        group.widgets.forEach(w => {
+                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].tolMode = spec.tolMode; }
+                        });
+                    }
+                    render();
+                    buildSpecRows();
+                });
+                row.appendChild(tolCheckbox);
+                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: '%FS Tol', style: 'margin-left:2px;margin-right:6px;' }));
+
+                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: '#BS:' }));
+                const lowInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '#' });
+                lowInp.style.cssText = 'width:50px;font-size:12px;'; lowInp.value = spec.tolLow || '';
+                lowInp.disabled = !isSection;
+                lowInp.addEventListener('input', () => {
+                    spec.tolLow = lowInp.value; sync();
+                    if (!isSlave) {
+                        group.widgets.forEach(w => {
+                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].tolLow = lowInp.value; }
+                        });
+                    }
+                });
+                row.appendChild(lowInp);
 
                 row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: '#FS:' }));
-                const fsNumInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '0' });
-                fsNumInp.style.cssText = 'width:50px;font-size:12px;'; fsNumInp.value = spec.fsVal || '';
-                fsNumInp.addEventListener('input', () => {
-                    spec.fsVal = fsNumInp.value; updateErrorHeaders(); sync();
+                const highInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '#' });
+                highInp.style.cssText = 'width:50px;font-size:12px;'; highInp.value = spec.tolHigh || '';
+                highInp.disabled = !isSection;
+                highInp.addEventListener('input', () => {
+                    spec.tolHigh = highInp.value; sync();
                     if (!isSlave) {
                         group.widgets.forEach(w => {
-                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].fsVal = fsNumInp.value; w.updateErrorHeadersUI(); w.buildSpecRows(); }
+                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].tolHigh = highInp.value; }
                         });
                     }
                 });
-                row.appendChild(fsNumInp);
+                row.appendChild(highInp);
 
-                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: 'S/N:' }));
-                const snInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: 'Serial #' });
-                snInp.style.cssText = 'width:110px;font-size:12px;'; snInp.value = spec.serial || '';
-                snInp.addEventListener('input', () => {
-                    spec.serial = snInp.value; sync();
+                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: '%FS:' }));
+                const splitInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '% / %-%-%' });
+                splitInp.style.cssText = 'width:65px;font-size:12px;'; splitInp.value = spec.tolSplit || '';
+                splitInp.disabled = !isSection;
+                splitInp.addEventListener('input', () => {
+                    spec.tolSplit = splitInp.value; sync();
                     if (!isSlave) {
                         group.widgets.forEach(w => {
-                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].serial = snInp.value; w.buildSpecRows(); }
+                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].tolSplit = splitInp.value; }
                         });
                     }
                 });
-                row.appendChild(snInp);
+                row.appendChild(splitInp);
 
                 specWrap.appendChild(row);
             });
@@ -1004,9 +1264,7 @@
                 if (gaugeSpecs.length === 1 && gi === 0) errCol = cols.indexOf('% ERROR');
                 else errCol = cols.indexOf('% ERROR ' + (gi + 1));
                 if (errCol < 0) return;
-                const fsPct = parseFloat(spec.fsPct);
-                const fsVal = parseFloat(spec.fsVal);
-                const label = (!isNaN(fsPct) && !isNaN(fsVal) && fsVal !== 0) ? '% FS ERROR' : '% ERROR';
+                const label = spec.tolMode === 'section' ? '% FS ERROR' : '% ERROR';
                 const displayLabel = gaugeSpecs.length > 1 ? label + ' ' + (gi + 1) : label;
                 tableWrap.querySelectorAll('thead th').forEach((th, i) => {
                     if (i === errCol + 1) th.textContent = displayLabel;
@@ -1024,22 +1282,24 @@
         addGaugeBtn.textContent = '+ Gauge';
         addGaugeBtn.title = 'Add another gauge (duplicates columns), up to ' + MAX_COLS + ' columns total';
         addGaugeBtn.addEventListener('click', () => {
-            if (cols.length + 3 > MAX_COLS) { alert('Maximum of ' + MAX_COLS + ' columns (PDF page width limit).'); return; }
+            if (cols.length + 4 > MAX_COLS) { alert('Maximum of ' + MAX_COLS + ' columns (4 per gauge).'); return; }
             const existingGaugeNums = cols.filter(c => /^Gauge \d+$/.test(c)).map(c => parseInt(c.match(/Gauge (\d+)/)[1], 10));
             const maxGauge = existingGaugeNums.length ? Math.max(...existingGaugeNums) : 0;
             if (maxGauge === 0 && group.viewMode === 'card') {
                 const tpIdx = cols.indexOf('TEST POINT');
                 const uutIdx = cols.indexOf('UUT');
                 const errIdx = cols.indexOf('% ERROR');
+                const pfIdx = cols.indexOf('PASS/FAIL');
                 if (tpIdx >= 0) cols[tpIdx] = 'Gauge 1';
                 if (uutIdx >= 0) cols[uutIdx] = 'UUT 1';
                 if (errIdx >= 0) cols[errIdx] = '% ERROR 1';
+                if (pfIdx >= 0) cols[pfIdx] = 'PASS/FAIL 1';
             }
             const gaugeNum = maxGauge === 0 ? 2 : maxGauge + 1;
-            cols.push('Gauge ' + gaugeNum, 'UUT ' + gaugeNum, '% ERROR ' + gaugeNum);
-            gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '' });
+            cols.push('Gauge ' + gaugeNum, 'UUT ' + gaugeNum, '% ERROR ' + gaugeNum, 'PASS/FAIL ' + gaugeNum);
+            gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '', tolHigh: '', tolSplit: '' });
             group.widgets.forEach(w => {
-                if (w !== widget && w.isSlave) w._gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '' });
+                if (w !== widget && w.isSlave) w._gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '', tolHigh: '', tolSplit: '' });
             });
             broadcastStructureChange();
         });
@@ -1078,9 +1338,9 @@
         clearBtn.addEventListener('click', () => {
             if (!confirm('Clear this table\u2019s data? Column headers are shared with the linked table and will also reset.')) return;
             cols.length = 0; cols.push(...config.columns);
-            gaugeSpecs.length = 0; gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '' });
+            gaugeSpecs.length = 0; gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '', tolHigh: '', tolSplit: '' });
             group.widgets.forEach(w => {
-                if (w !== widget && w.isSlave) { w._gaugeSpecs.length = 0; w._gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '' }); }
+                if (w !== widget && w.isSlave) { w._gaugeSpecs.length = 0; w._gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '', tolHigh: '', tolSplit: '' }); }
             });
             group.widgets.forEach(w => { if (w === widget) w.resetRows(); else w.onStructureChange(); });
         });
@@ -1088,6 +1348,13 @@
 
         actions.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: 'Tab · Enter · Arrows · Dbl-click header to rename · =formula (e.g. =A1+B1) · max ' + MAX_COLS + ' cols' }));
         if (!isSlave) attachSerialControls(actions);
+
+        // Print button — placed after serial controls
+        const printBtn = document.createElement('button');
+        printBtn.className = 'cal-btn'; printBtn.type = 'button'; printBtn.textContent = 'Print';
+        printBtn.title = 'Print both tables';
+        printBtn.addEventListener('click', () => window.print());
+        actions.appendChild(printBtn);
 
         // ── Widget object exposed for linking ───────────────────────────────
         widget = {
@@ -1164,7 +1431,18 @@
     // Click into any cell (including a previous row, to retest a point) before
     // pulling the wrench, and that's where the reading lands.
     let serialPort = null;
+    let serialReader = null;
     let serialAutoReconnectAttempted = false;
+
+    // Some USB-serial drivers (CH340 in particular) are slow to release the port
+    // if it isn't explicitly closed before the page unloads — leaving the next
+    // page's connection attempt to fail, or "succeed" but silently receive no
+    // data. Cancel the reader and close the port before navigating away so the
+    // driver gets a clean handoff.
+    window.addEventListener('pagehide', () => {
+        try { if (serialReader) serialReader.cancel(); } catch (e) {}
+        try { if (serialPort && serialPort.readable) serialPort.close(); } catch (e) {}
+    });
 
     // Appends a Connect button + baud field + status text into a table's own
     // action bar (same row as Card/Sheet/Gauge/Row/Column/Clear). Multiple
@@ -1207,16 +1485,25 @@
         }
     }
 
-    async function openSerial() {
+    async function openSerial(isRetry) {
         try {
-            // dataBits: 8, stopBits: 2, parity: none — matches the TTT's factory-default
-            // "8-2" data/stop-bit setting and OFF parity from its SETUP > SERIAL PORT menu.
-            // Change these if the tester's own serial settings have been customized.
+            // dataBits: 8, stopBits: 1, parity: none — matches this unit's ACTUAL working
+            // configuration (confirmed via the old WedgeLink setup), not the printed manual's
+            // factory default of 2 stop bits. Real-world config takes precedence here since
+            // settings can drift from factory defaults over a unit's life.
             await serialPort.open({ baudRate: getBaud(), dataBits: 8, stopBits: 2, parity: 'none' });
             setSerialStatus('Connected — click a UUT cell, then pull the wrench', true);
             readSerialLoop();
         } catch (err) {
-            setSerialStatus('Open failed: ' + err.message, false);
+            if (!isRetry) {
+                // The adapter's driver can be slow to release the port right after a
+                // page refresh/navigation — wait briefly and try once more before
+                // reporting a real failure.
+                setSerialStatus('Reconnecting…', false);
+                setTimeout(() => openSerial(true), 600);
+                return;
+            }
+            setSerialStatus('Open failed: ' + err.message + ' — try unplugging and replugging the adapter', false);
         }
     }
 
@@ -1238,12 +1525,12 @@
     }
 
     async function readSerialLoop() {
-        const reader = serialPort.readable.getReader();
+        serialReader = serialPort.readable.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
         try {
             while (true) {
-                const { value, done } = await reader.read();
+                const { value, done } = await serialReader.read();
                 if (done) break;
                 buffer += decoder.decode(value);
                 // The tester's factory default sends lines ending in \r only (no \n) —
@@ -1257,6 +1544,9 @@
             }
         } catch (err) {
             setSerialStatus('Disconnected: ' + err.message, false);
+        } finally {
+            try { serialReader.releaseLock(); } catch (e) {}
+            serialReader = null;
         }
     }
 
@@ -1277,9 +1567,27 @@
         }
 
         active.value = value;
+
+        const ri = parseInt(active.dataset.ri, 10);
+        const ci = parseInt(active.dataset.ci, 10);
+        if (!Number.isNaN(ri) && !Number.isNaN(ci)) {
+            const wrapper = active.closest('.cal-wrapper');
+            if (wrapper) {
+                const ta = wrapper.nextElementSibling;
+                if (ta && ta._widget) {
+                    ta._widget._rows[ri][ci] = value;
+                }
+            }
+        }
+
         active.dispatchEvent(new Event('input', { bubbles: true }));
-        active.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-        setSerialStatus('Wrote ' + value + ' — connected', true);
+
+        setTimeout(() => {
+            if (active.isConnected) {
+                active.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+            }
+            setSerialStatus('Wrote ' + value + ' — connected', true);
+        }, 60);
     }
 
     const observer = new MutationObserver(tryBuildAll);
