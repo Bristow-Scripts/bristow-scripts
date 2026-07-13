@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      6.2
-// @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing. Linked tables share columns, one-way tolerance sync (master→slave), custom unit input, sheet mode keeps pre/post data independent. Web Serial torque-tester input embedded in each table's action bar: click a cell, pull the wrench, value fills and auto-advances. Row deletion broadcasts to linked tables. Serial framing set to 1 stop bit matching this unit's proven-working config. Port is now cleanly closed on page navigation/refresh, with a short automatic retry on reconnect if the adapter's driver needs a moment to release — fixes "Open failed" and silently-connected-but-no-data states after refreshing.
+// @version      6.3
+// @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
@@ -183,42 +183,9 @@
         .cal-serial-status { color: #c0392b; max-width: 260px; }
         .cal-serial-status.good { color: #219150; }
 
-        /* ── PRINT / PDF ── */
-        @media print {
-            textarea[id^="OrderHead_CustomFields_"] { display: none !important; }
-            .cal-actions { display: none !important; }
-            .cal-label { display: none !important; }
-            .cal-table tfoot { display: none !important; }
-            .cal-table-wrap { overflow: visible !important; border: none !important; }
-            .cal-table, .cal-sheet-table { min-width: 0 !important; width: 100% !important; }
-            .cal-table thead tr {
-                background: #265c89 !important; color: #fff !important;
-                -webkit-print-color-adjust: exact; print-color-adjust: exact;
-            }
-            .cal-table tbody tr:nth-child(even) {
-                background: #EEF6FF !important;
-                -webkit-print-color-adjust: exact; print-color-adjust: exact;
-            }
-            .cal-table tbody td { border: 1px solid #ccc !important; }
-            .cal-table tbody td.row-num { border-right: 2px solid #ccc !important; }
-            .cal-table tbody td input.cal-pass {
-                background: #d4edda !important; color: #155724 !important;
-                -webkit-print-color-adjust: exact; print-color-adjust: exact;
-            }
-            .cal-table tbody td input.cal-fail {
-                background: #f8d7da !important; color: #721c24 !important;
-                -webkit-print-color-adjust: exact; print-color-adjust: exact;
-            }
-            .cal-sheet-table th {
-                background: #f1f3f4 !important; color: #444 !important;
-                -webkit-print-color-adjust: exact; print-color-adjust: exact;
-            }
-            .cal-sheet-table td.cal-sheet-rownum {
-                background: #f1f3f4 !important;
-                -webkit-print-color-adjust: exact; print-color-adjust: exact;
-            }
-            #cal-serial-panel { display: none !important; }
-        }
+        /* Printing now opens a dedicated window (see the Print button handler)
+           with its own minimal stylesheet, so no @media print rules are needed
+           here for the live page. */
     `;
     document.head.appendChild(_style);
 
@@ -281,6 +248,42 @@
     }
     function loadGaugeSpecs(textareaId) {
         try { const s = localStorage.getItem('cal_specs_' + textareaId); return s ? JSON.parse(s) : null; } catch(e) { return null; }
+    }
+
+    // ── localStorage helpers for column layout (card labels, sheet labels, roles, mode) ──
+    // This is the source of truth for column structure on a given browser/profile —
+    // far more reliable than re-parsing it from the saved ASCII text, which breaks the
+    // moment a column is renamed away from its default text (see roleIdx below for why).
+    function saveLayout(groupId, layout) {
+        try { localStorage.setItem('cal_layout_' + groupId, JSON.stringify(layout)); } catch(e) {}
+    }
+    function loadLayout(groupId) {
+        try { const s = localStorage.getItem('cal_layout_' + groupId); return s ? JSON.parse(s) : null; } catch(e) { return null; }
+    }
+
+    // One-time fallback used only when no saved layout exists yet on this browser
+    // (e.g. an older order, or a different computer). Infers each column's role
+    // (test point / UUT / % error / pass-fail, per gauge) from its position, using
+    // the same 4-per-gauge / legacy 3-per-gauge template this script has always used.
+    // Unlike the old text-matching approach, this never has to be re-run once a
+    // layout is saved, so a later rename can't corrupt it.
+    function inferRoles(n) {
+        const roles = [];
+        if (n > 0 && n % 4 === 0) {
+            for (let i = 0; i < n; i += 4) {
+                const g = (i / 4) + 1;
+                roles.push('tp' + g, 'uut' + g, 'err' + g, 'pf' + g);
+            }
+            return roles;
+        }
+        if (n > 0 && n % 3 === 0) {
+            for (let i = 0; i < n; i += 3) {
+                const g = (i / 3) + 1;
+                roles.push('tp' + g, 'uut' + g, 'err' + g);
+            }
+            return roles;
+        }
+        return Array(n).fill(null);
     }
 
     // ── Restore previously saved table data ──────────────────────────────────
@@ -390,6 +393,10 @@
         let s = ''; i++;
         while (i > 0) { const r = (i - 1) % 26; s = String.fromCharCode(65 + r) + s; i = Math.floor((i - 1) / 26); }
         return s;
+    }
+
+    function escapeHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
     // Format error value: auto-trim trailing zeros, max 4 decimal places
@@ -524,17 +531,26 @@
     }
 
     // ── Linked-table shared state registry ─────────────────────────────────────
-    // Linked tables share the SAME cols array object. gaugeSpecs is shared for
-    // the master but deep-copied for each slave, so tolerance edits are one-way
-    // (master → slave). Structural changes (add/remove column/gauge) still
-    // broadcast to all widgets via broadcastStructureChange().
-    const LINK_GROUPS = {}; // groupId -> { cols, gaugeSpecs, viewMode, widgets: [], initialSyncDone }
+    // Linked tables share the SAME cardCols/sheetCols/roles array objects, so a
+    // structural change (add/remove column/gauge) or a card-mode rename is
+    // instantly visible on both tables. Card and Sheet each keep their own
+    // label array (cardCols / sheetCols) so renaming in one view never touches
+    // the other. "roles" is a stable, never-renamed tag per column (tp1/uut1/
+    // err1/pf1, tp2/uut2/..., or null for a free-text column) used for all
+    // % ERROR / PASS-FAIL lookups, so renaming a column's display label never
+    // breaks its calculations. gaugeSpecs is shared for the master but
+    // deep-copied for each slave, so tolerance edits are one-way (master →
+    // slave). Structural changes still broadcast to all widgets via
+    // broadcastStructureChange().
+    const LINK_GROUPS = {}; // groupId -> { cardCols, sheetCols, roles, gaugeSpecs, viewMode, widgets: [] }
+    const _built = new Set(); // track which textarea IDs have already been built
 
     // ── Build one table widget ────────────────────────────────────────────────
     function buildWidget(config) {
         const ta = document.getElementById(config.textareaId);
         if (!ta || ta.tagName !== 'TEXTAREA') return false;
-        if (ta.previousElementSibling && ta.previousElementSibling.classList.contains('cal-wrapper')) return true;
+        if (_built.has(config.textareaId)) return true;
+        if (ta.previousElementSibling && ta.previousElementSibling.classList.contains('cal-wrapper')) { _built.add(config.textareaId); return true; }
 
         const groupId = config.linkedFrom || config.textareaId;
         const isSlave = !!config.linkedFrom;
@@ -542,8 +558,26 @@
 
         let group = LINK_GROUPS[groupId];
         if (!group) {
-            const cardMode = existing.headers ? isCardModeHeaders(existing.headers, config.columns) : true;
-            const cols = (existing.headers && existing.headers.length) ? existing.headers.slice() : config.columns.slice();
+            const savedLayout = loadLayout(groupId);
+            let cardCols, sheetCols, roles, viewMode;
+            if (savedLayout && savedLayout.cardCols && savedLayout.cardCols.length) {
+                // Trust the saved layout on this browser — it's immune to the
+                // renamed-column-breaks-detection problem that text parsing has.
+                cardCols = savedLayout.cardCols.slice();
+                const n = cardCols.length;
+                sheetCols = (savedLayout.sheetCols && savedLayout.sheetCols.length === n) ? savedLayout.sheetCols.slice() : Array(n).fill('');
+                roles = (savedLayout.roles && savedLayout.roles.length === n) ? savedLayout.roles.slice() : inferRoles(n);
+                viewMode = savedLayout.viewMode === 'sheet' ? 'sheet' : 'card';
+            } else {
+                // No saved layout yet on this browser (older order, or a different
+                // computer) — fall back to inferring structure from the saved ASCII
+                // header line, same as before.
+                const cardMode = existing.headers ? isCardModeHeaders(existing.headers, config.columns) : true;
+                cardCols = (existing.headers && existing.headers.length) ? existing.headers.slice() : config.columns.slice();
+                sheetCols = Array(cardCols.length).fill('');
+                roles = inferRoles(cardCols.length);
+                viewMode = cardMode ? 'card' : 'sheet';
+            }
             // Try localStorage first, then textarea, then default
             const savedSpecs = loadGaugeSpecs(config.textareaId);
             let gaugeSpecs;
@@ -555,13 +589,23 @@
                 gaugeSpecs = [{ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '0', tolHigh: '', tolSplit: '' }];
             }
             group = LINK_GROUPS[groupId] = {
-                cols, gaugeSpecs,
-                viewMode: cardMode ? 'card' : 'sheet',
+                cardCols, sheetCols, roles, gaugeSpecs,
+                viewMode,
                 widgets: [],
             };
         }
 
-        const cols = group.cols;
+        // cardCols/sheetCols/roles are shared array objects across the linked
+        // pair (same as before) — a structural change on either table is
+        // immediately visible on the other.
+        const cardCols = group.cardCols;
+        const sheetCols = group.sheetCols;
+        const roles = group.roles;
+        const cols = cardCols; // structural length + card-mode display labels
+        function roleIdx(kind, gaugeNum) { return roles.indexOf(kind + gaugeNum); }
+        function persistLayout() {
+            saveLayout(groupId, { viewMode: group.viewMode, cardCols: group.cardCols, sheetCols: group.sheetCols, roles: group.roles });
+        }
         // Slave gets its own copy of gaugeSpecs so tolerance edits are one-way (master→slave)
         const gaugeSpecs = isSlave
             ? JSON.parse(JSON.stringify(group.gaugeSpecs))
@@ -623,6 +667,22 @@
             });
         }
 
+        function cardDisplayLabels() {
+            // Auto-relabel a gauge's error column to "% FS ERROR" when that gauge uses
+            // section tolerance — but only if the user hasn't renamed it to something
+            // else, so a genuine custom rename is never silently overwritten.
+            return cardCols.map((label, ci) => {
+                for (let gi = 0; gi < gaugeSpecs.length; gi++) {
+                    if (roles[ci] === 'err' + (gi + 1) && gaugeSpecs[gi].tolMode === 'section') {
+                        if (/^% ERROR(\s*\d+)?$/.test(label)) {
+                            return gaugeSpecs.length > 1 ? '% FS ERROR ' + (gi + 1) : '% FS ERROR';
+                        }
+                    }
+                }
+                return label;
+            });
+        }
+
         let _isSyncing = false;
         function sync() {
             if (_isSyncing) return;
@@ -630,14 +690,8 @@
             if (group.viewMode !== 'sheet') rows.forEach((_, ri) => calcError(ri));
             if (group.viewMode === 'card') {
                 gaugeSpecs.forEach((spec, gi) => {
-                    let errCol, pfCol;
-                    if (gaugeSpecs.length === 1 && gi === 0) {
-                        errCol = cols.indexOf('% ERROR');
-                        pfCol = cols.indexOf('PASS/FAIL');
-                    } else {
-                        errCol = cols.indexOf('% ERROR ' + (gi + 1));
-                        pfCol = cols.indexOf('PASS/FAIL ' + (gi + 1));
-                    }
+                    const errCol = roleIdx('err', gi + 1);
+                    const pfCol = roleIdx('pf', gi + 1);
                     if (errCol < 0) return;
                     rows.forEach((row, ri) => {
                         const inp = tableWrap.querySelector(`input[data-ri="${ri}"][data-ci="${errCol}"]`);
@@ -651,8 +705,14 @@
             }
             refreshFormulaDisplay();
             const resolved = rows.map((row, ri) => row.map((_, ci) => cellVal(ri, ci)));
-            ta.value = hasAnyData() ? serialize(resolved, cols, null, null, null, null, gaugeSpecs) : '';
+            // Sheet mode saves with blank headers (unless the user renamed a column)
+            // and no gauge-spec summary line — pre/post sheets are freeform, not tied
+            // to a gauge. Card mode keeps its normal labeled + gauge-spec output.
+            const activeLabels = group.viewMode === 'sheet' ? sheetCols.map((c, ci) => c || colLetter(ci)) : cardDisplayLabels();
+            const specsForSave = group.viewMode === 'sheet' ? null : gaugeSpecs;
+            ta.value = hasAnyData() ? serialize(resolved, activeLabels, null, null, null, null, specsForSave) : '';
             saveGaugeSpecs(config.textareaId, gaugeSpecs);
+            persistLayout();
             ta.dispatchEvent(new Event('change', { bubbles: true }));
             ta.dispatchEvent(new Event('input',  { bubbles: true }));
             _isSyncing = false;
@@ -671,18 +731,10 @@
 
         function calcError(ri) {
             gaugeSpecs.forEach((spec, gi) => {
-                let tpCol, uutCol, errCol, pfCol;
-                if (gaugeSpecs.length === 1 && gi === 0) {
-                    tpCol = cols.indexOf('TEST POINT');
-                    uutCol = cols.indexOf('UUT');
-                    errCol = cols.indexOf('% ERROR');
-                    pfCol = cols.indexOf('PASS/FAIL');
-                } else {
-                    tpCol = cols.indexOf('Gauge ' + (gi + 1));
-                    uutCol = cols.indexOf('UUT ' + (gi + 1));
-                    errCol = cols.indexOf('% ERROR ' + (gi + 1));
-                    pfCol = cols.indexOf('PASS/FAIL ' + (gi + 1));
-                }
+                const tpCol = roleIdx('tp', gi + 1);
+                const uutCol = roleIdx('uut', gi + 1);
+                const errCol = roleIdx('err', gi + 1);
+                const pfCol = roleIdx('pf', gi + 1);
                 if (tpCol < 0 || uutCol < 0 || errCol < 0) return;
                 const tp  = parseFloat(cellVal(ri, tpCol));
                 const uut = parseFloat(cellVal(ri, uutCol));
@@ -711,14 +763,8 @@
         function refreshErrorCols() {
             if (group.viewMode === 'sheet') return;
             gaugeSpecs.forEach((spec, gi) => {
-                let errCol, pfCol;
-                if (gaugeSpecs.length === 1 && gi === 0) {
-                    errCol = cols.indexOf('% ERROR');
-                    pfCol = cols.indexOf('PASS/FAIL');
-                } else {
-                    errCol = cols.indexOf('% ERROR ' + (gi + 1));
-                    pfCol = cols.indexOf('PASS/FAIL ' + (gi + 1));
-                }
+                const errCol = roleIdx('err', gi + 1);
+                const pfCol = roleIdx('pf', gi + 1);
                 if (errCol < 0) return;
                 rows.forEach((_, ri) => {
                     calcError(ri);
@@ -736,13 +782,8 @@
             const skipCols = new Set();
             if (!isSheet) {
                 gaugeSpecs.forEach((spec, gi) => {
-                    if (gaugeSpecs.length === 1 && gi === 0) {
-                        skipCols.add(cols.indexOf('% ERROR'));
-                        skipCols.add(cols.indexOf('PASS/FAIL'));
-                    } else {
-                        skipCols.add(cols.indexOf('% ERROR ' + (gi + 1)));
-                        skipCols.add(cols.indexOf('PASS/FAIL ' + (gi + 1)));
-                    }
+                    skipCols.add(roleIdx('err', gi + 1));
+                    skipCols.add(roleIdx('pf', gi + 1));
                 });
             }
             let nc = c + dir;
@@ -753,18 +794,10 @@
         function calcRowError(ri) {
             if (group.viewMode === 'sheet') return;
             gaugeSpecs.forEach((spec, gi) => {
-                let tpCol, uutCol, errCol, pfCol;
-                if (gaugeSpecs.length === 1 && gi === 0) {
-                    tpCol = cols.indexOf('TEST POINT');
-                    uutCol = cols.indexOf('UUT');
-                    errCol = cols.indexOf('% ERROR');
-                    pfCol = cols.indexOf('PASS/FAIL');
-                } else {
-                    tpCol = cols.indexOf('Gauge ' + (gi + 1));
-                    uutCol = cols.indexOf('UUT ' + (gi + 1));
-                    errCol = cols.indexOf('% ERROR ' + (gi + 1));
-                    pfCol = cols.indexOf('PASS/FAIL ' + (gi + 1));
-                }
+                const tpCol = roleIdx('tp', gi + 1);
+                const uutCol = roleIdx('uut', gi + 1);
+                const errCol = roleIdx('err', gi + 1);
+                const pfCol = roleIdx('pf', gi + 1);
                 if (tpCol < 0 || uutCol < 0 || errCol < 0) return;
                 const errInp = tableWrap.querySelector(`input[data-ri="${ri}"][data-ci="${errCol}"]`);
                 const tp  = parseFloat(cellVal(ri, tpCol));
@@ -825,13 +858,8 @@
             const isSheet = group.viewMode === 'sheet';
             if (!isSheet) {
                 gaugeSpecs.forEach((spec, gi) => {
-                    if (gaugeSpecs.length === 1 && gi === 0) {
-                        skipCols.add(cols.indexOf('% ERROR'));
-                        skipCols.add(cols.indexOf('PASS/FAIL'));
-                    } else {
-                        skipCols.add(cols.indexOf('% ERROR ' + (gi + 1)));
-                        skipCols.add(cols.indexOf('PASS/FAIL ' + (gi + 1)));
-                    }
+                    skipCols.add(roleIdx('err', gi + 1));
+                    skipCols.add(roleIdx('pf', gi + 1));
                 });
             }
 
@@ -905,13 +933,8 @@
             const calcCols = new Set();
             if (!isSheet) {
                 gaugeSpecs.forEach((spec, gi) => {
-                    if (gaugeSpecs.length === 1 && gi === 0) {
-                        calcCols.add(cols.indexOf('% ERROR'));
-                        calcCols.add(cols.indexOf('PASS/FAIL'));
-                    } else {
-                        calcCols.add(cols.indexOf('% ERROR ' + (gi + 1)));
-                        calcCols.add(cols.indexOf('PASS/FAIL ' + (gi + 1)));
-                    }
+                    calcCols.add(roleIdx('err', gi + 1));
+                    calcCols.add(roleIdx('pf', gi + 1));
                 });
             }
             const inp = document.createElement('input');
@@ -926,12 +949,9 @@
             const isCalcCell = !isSheet && calcCols.has(ci);
             if (isCalcCell) inp.classList.add('cal-calc-cell');
             // PASS/FAIL coloring
-            if (!isSheet) {
-                const colName = cols[ci] || '';
-                if (/^PASS\/FAIL(\s*\d+)?$/.test(colName)) {
-                    if (raw === 'PASS') inp.classList.add('cal-pass');
-                    else if (raw === 'FAIL') inp.classList.add('cal-fail');
-                }
+            if (!isSheet && roles[ci] && roles[ci].startsWith('pf')) {
+                if (raw === 'PASS') inp.classList.add('cal-pass');
+                else if (raw === 'FAIL') inp.classList.add('cal-fail');
             }
             if (typeof raw === 'string' && raw.startsWith('=')) inp.classList.add('cal-formula-cell');
 
@@ -968,16 +988,9 @@
                 rows[ri][ci] = inp.value;
                 if (!isSheet) {
                     gaugeSpecs.forEach((spec, gi) => {
-                        let tpCol, uutCol, errCol;
-                        if (gaugeSpecs.length === 1 && gi === 0) {
-                            tpCol = cols.indexOf('TEST POINT');
-                            uutCol = cols.indexOf('UUT');
-                            errCol = cols.indexOf('% ERROR');
-                        } else {
-                            tpCol = cols.indexOf('Gauge ' + (gi + 1));
-                            uutCol = cols.indexOf('UUT ' + (gi + 1));
-                            errCol = cols.indexOf('% ERROR ' + (gi + 1));
-                        }
+                        const tpCol = roleIdx('tp', gi + 1);
+                        const uutCol = roleIdx('uut', gi + 1);
+                        const errCol = roleIdx('err', gi + 1);
                         if (tpCol < 0 || uutCol < 0 || errCol < 0) return;
                         if (ci === tpCol || ci === uutCol) {
                             calcError(ri);
@@ -1003,8 +1016,12 @@
                 th.textContent = ''; th.appendChild(inp);
                 inp.focus(); inp.select();
                 function commit() {
-                    const newName = inp.value.trim() || col;
-                    cols[ci] = newName; // shared array — visible to linked table immediately
+                    const newName = inp.value.trim();
+                    // Card and sheet each keep their own label for the same structural
+                    // column — renaming one never touches the other, and never touches
+                    // the underlying role used for % ERROR / PASS-FAIL calculations.
+                    if (isSheet) sheetCols[ci] = newName;
+                    else cardCols[ci] = newName || col;
                     group.widgets.forEach(w => { w.render(); w.sync(); });
                 }
                 inp.addEventListener('blur', commit);
@@ -1026,16 +1043,11 @@
             thNum.className = 'cal-th-fixed'; thNum.style.width = '26px';
             hrow.appendChild(thNum);
 
-            const anySection = gaugeSpecs.some(s => s.tolMode === 'section');
-            cols.forEach((col, ci) => {
+            const displayLabels = cardDisplayLabels();
+            displayLabels.forEach((displayCol, ci) => {
                 const th = document.createElement('th');
-                let displayCol = col;
-                if (anySection) {
-                    const m = col.match(/^(% ERROR)(\s*\d+)?$/);
-                    if (m) displayCol = '% FS ERROR' + (m[2] || '');
-                }
                 th.textContent = displayCol; th.title = 'Double-click to rename';
-                makeRenameHandler(th, ci, col, false);
+                makeRenameHandler(th, ci, cardCols[ci], false);
                 hrow.appendChild(th);
             });
 
@@ -1064,7 +1076,8 @@
                 cols.forEach((col, ci) => {
                     const ftd = document.createElement('td');
                     ftd.style.cssText = 'text-align:center;padding:2px;border:1px solid #dde3ea;';
-                    const isCopyable = /^(TEST POINT|Gauge \d+|UUT(\s*\d+)?)$/i.test(col);
+                    const r = roles[ci] || '';
+                    const isCopyable = r.startsWith('tp') || r.startsWith('uut');
                     if (isCopyable) {
                         const btn = document.createElement('button');
                         btn.type = 'button'; btn.textContent = '\u2193 Post';
@@ -1100,10 +1113,12 @@
             const corner = document.createElement('th'); corner.className = 'cal-sheet-corner';
             letterRow.appendChild(corner);
 
-            cols.forEach((col, ci) => {
+            cols.forEach((_, ci) => {
                 const th = document.createElement('th'); th.className = 'cal-sheet-letter';
-                th.textContent = colLetter(ci); th.title = col + ' — double-click to rename';
-                makeRenameHandler(th, ci, col, true);
+                const sLabel = sheetCols[ci] || '';
+                th.textContent = sLabel || colLetter(ci);
+                th.title = (sLabel ? sLabel + ' — ' : '') + 'double-click to rename (used for the printed/saved column header)';
+                makeRenameHandler(th, ci, sLabel, true);
                 letterRow.appendChild(th);
             });
 
@@ -1320,18 +1335,9 @@
         buildSpecRows();
 
         function updateErrorHeaders() {
-            if (group.viewMode === 'sheet') return;
-            gaugeSpecs.forEach((spec, gi) => {
-                let errCol;
-                if (gaugeSpecs.length === 1 && gi === 0) errCol = cols.indexOf('% ERROR');
-                else errCol = cols.indexOf('% ERROR ' + (gi + 1));
-                if (errCol < 0) return;
-                const label = spec.tolMode === 'section' ? '% FS ERROR' : '% ERROR';
-                const displayLabel = gaugeSpecs.length > 1 ? label + ' ' + (gi + 1) : label;
-                tableWrap.querySelectorAll('thead th').forEach((th, i) => {
-                    if (i === errCol + 1) th.textContent = displayLabel;
-                });
-            });
+            // No-op: renderCard() already computes the correct header text
+            // (including the FS-ERROR relabel) while respecting any rename.
+            // Kept as a stub since it's referenced on the widget object below.
         }
 
         // ── Structural changes (columns/gauges) broadcast to every linked widget ─
@@ -1345,20 +1351,25 @@
         addGaugeBtn.title = 'Add another gauge (duplicates columns), up to ' + MAX_COLS + ' columns total';
         addGaugeBtn.addEventListener('click', () => {
             if (cols.length + 4 > MAX_COLS) { alert('Maximum of ' + MAX_COLS + ' columns (4 per gauge).'); return; }
-            const existingGaugeNums = cols.filter(c => /^Gauge \d+$/.test(c)).map(c => parseInt(c.match(/Gauge (\d+)/)[1], 10));
+            const existingGaugeNums = roles.filter(r => r && /^tp\d+$/.test(r)).map(r => parseInt(r.slice(2), 10));
             const maxGauge = existingGaugeNums.length ? Math.max(...existingGaugeNums) : 0;
-            if (maxGauge === 0 && group.viewMode === 'card') {
-                const tpIdx = cols.indexOf('TEST POINT');
-                const uutIdx = cols.indexOf('UUT');
-                const errIdx = cols.indexOf('% ERROR');
-                const pfIdx = cols.indexOf('PASS/FAIL');
-                if (tpIdx >= 0) cols[tpIdx] = 'Gauge 1';
-                if (uutIdx >= 0) cols[uutIdx] = 'UUT 1';
-                if (errIdx >= 0) cols[errIdx] = '% ERROR 1';
-                if (pfIdx >= 0) cols[pfIdx] = 'PASS/FAIL 1';
+            if (maxGauge === 0) {
+                // Cosmetic only — relabels the existing gauge-1 card columns from
+                // TEST POINT/UUT/etc. to Gauge 1/UUT 1/etc. Their roles (tp1/uut1/
+                // err1/pf1) don't change, so this never affects calculations.
+                const tpIdx = roleIdx('tp', 1);
+                const uutIdx = roleIdx('uut', 1);
+                const errIdx = roleIdx('err', 1);
+                const pfIdx = roleIdx('pf', 1);
+                if (tpIdx >= 0) cardCols[tpIdx] = 'Gauge 1';
+                if (uutIdx >= 0) cardCols[uutIdx] = 'UUT 1';
+                if (errIdx >= 0) cardCols[errIdx] = '% ERROR 1';
+                if (pfIdx >= 0) cardCols[pfIdx] = 'PASS/FAIL 1';
             }
             const gaugeNum = maxGauge === 0 ? 2 : maxGauge + 1;
-            cols.push('Gauge ' + gaugeNum, 'UUT ' + gaugeNum, '% ERROR ' + gaugeNum, 'PASS/FAIL ' + gaugeNum);
+            cardCols.push('Gauge ' + gaugeNum, 'UUT ' + gaugeNum, '% ERROR ' + gaugeNum, 'PASS/FAIL ' + gaugeNum);
+            sheetCols.push('', '', '', '');
+            roles.push('tp' + gaugeNum, 'uut' + gaugeNum, 'err' + gaugeNum, 'pf' + gaugeNum);
             gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '0', tolHigh: '', tolSplit: '' });
             group.widgets.forEach(w => {
                 if (w !== widget && w.isSlave) w._gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '0', tolHigh: '', tolSplit: '' });
@@ -1379,7 +1390,9 @@
         addColBtn.addEventListener('click', () => {
             if (cols.length >= MAX_COLS) { alert('Maximum of ' + MAX_COLS + ' columns (PDF page width limit).'); return; }
             const name = colInput.value.trim() || `Col ${cols.length + 1}`;
-            cols.push(name);
+            cardCols.push(name);
+            sheetCols.push('');
+            roles.push(null);
             broadcastStructureChange();
             colInput.value = '';
         });
@@ -1389,7 +1402,9 @@
         delColBtn.className = 'cal-btn cal-btn-col-del'; delColBtn.type = 'button'; delColBtn.textContent = '\u2212 Last column';
         delColBtn.addEventListener('click', () => {
             if (cols.length > 1) {
-                cols.pop();
+                cardCols.pop();
+                sheetCols.pop();
+                roles.pop();
                 broadcastStructureChange();
             }
         });
@@ -1399,7 +1414,9 @@
         clearBtn.className = 'cal-btn cal-btn-clear'; clearBtn.type = 'button'; clearBtn.textContent = 'Clear';
         clearBtn.addEventListener('click', () => {
             if (!confirm('Clear this table\u2019s data? Column headers are shared with the linked table and will also reset.')) return;
-            cols.length = 0; cols.push(...config.columns);
+            cardCols.length = 0; cardCols.push(...config.columns);
+            sheetCols.length = 0; sheetCols.push(...Array(config.columns.length).fill(''));
+            roles.length = 0; roles.push(...inferRoles(config.columns.length));
             gaugeSpecs.length = 0; gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '0', tolHigh: '', tolSplit: '' });
             group.widgets.forEach(w => {
                 if (w !== widget && w.isSlave) { w._gaugeSpecs.length = 0; w._gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '0', tolHigh: '', tolSplit: '' }); }
@@ -1411,11 +1428,77 @@
         if (!isSlave) actions.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: 'Tab · Enter · Arrows · Dbl-click header to rename · =formula (e.g. =A1+B1) · max ' + MAX_COLS + ' cols' }));
         if (!isSlave) attachSerialControls(actions);
 
-        // Print button — placed after serial controls
+        // Print button — opens a small clean window with just the pre/post
+        // calibration tables (built from the live data model, not by cloning
+        // DOM inputs, so it's always accurate) so it can be handed to someone
+        // for a quick review without the rest of the order page.
+        function buildPrintHTML() {
+            const activeCols = group.viewMode === 'sheet' ? sheetCols : cardDisplayLabels();
+            const showSpecs = group.viewMode === 'card';
+            // Pick exactly one master and one slave (first found), skipping stale/duplicate widgets
+            const master = group.widgets.find(w => !w.isSlave);
+            const slave = group.widgets.find(w => w.isSlave);
+            const ordered = [master, slave].filter(Boolean);
+            let body = '<h2>Calibration Data</h2>';
+            let hasAnyContent = false;
+            ordered.forEach(w => {
+                const dataRows = w._rows.filter(r => r.some(c => c && String(c).trim() !== ''));
+                if (!dataRows.length) return; // skip empty tables
+                hasAnyContent = true;
+                const title = w.isSlave ? 'Post Data' : 'Pre Data';
+                body += `<h3>${title}</h3>`;
+                if (showSpecs) {
+                    const specLines = w._gaugeSpecs
+                        .map((s, gi) => {
+                            const parts = [];
+                            if (w._gaugeSpecs.length > 1) parts.push('Gauge ' + (gi + 1));
+                            if (s.serial) parts.push('S/N: ' + s.serial);
+                            if (s.unit) parts.push('Units: ' + s.unit);
+                            return parts.length ? parts.join(' \u2014 ') : null;
+                        })
+                        .filter(Boolean);
+                    if (specLines.length) body += `<div class="cal-print-specs">${specLines.map(escapeHtml).join(' &nbsp;|&nbsp; ')}</div>`;
+                }
+                const labels = activeCols.map((c, ci) => (c && c.trim()) ? c : (group.viewMode === 'sheet' ? colLetter(ci) : ('Col ' + (ci + 1))));
+                body += '<table><thead><tr>' + labels.map(l => `<th>${escapeHtml(l)}</th>`).join('') + '</tr></thead><tbody>';
+                dataRows.forEach(row => {
+                    body += '<tr>' + activeCols.map((_, ci) => {
+                        const val = row[ci] || '';
+                        const isPf = !!(roles[ci] && roles[ci].startsWith('pf'));
+                        const cls = isPf && val === 'PASS' ? 'cal-print-pass' : (isPf && val === 'FAIL' ? 'cal-print-fail' : '');
+                        return `<td class="${cls}">${escapeHtml(val)}</td>`;
+                    }).join('') + '</tr>';
+                });
+                body += '</tbody></table>';
+            });
+            if (!hasAnyContent) body += '<p style="color:#999;font-style:italic;">No data entered yet.</p>';
+            return body;
+        }
+
         const printBtn = document.createElement('button');
         printBtn.className = 'cal-btn'; printBtn.type = 'button'; printBtn.textContent = 'Print';
-        printBtn.title = 'Print both tables';
-        printBtn.addEventListener('click', () => window.print());
+        printBtn.title = 'Print just the pre/post calibration data tables';
+        printBtn.addEventListener('click', () => {
+            const win = window.open('', '_blank', 'width=900,height=700');
+            if (!win) { alert('Pop-up blocked \u2014 please allow pop-ups for this site to print.'); return; }
+            const css = `
+                body { font-family: Roboto, system-ui, sans-serif; color: #001c40; margin: 24px; }
+                h2 { margin: 0 0 12px; }
+                h3 { margin: 20px 0 4px; color: #265c89; }
+                .cal-print-specs { font-size: 12px; color: #555; margin-bottom: 6px; }
+                table { border-collapse: collapse; width: 100%; margin-bottom: 4px; font-size: 12px; }
+                th, td { border: 1px solid #999; padding: 4px 7px; text-align: left; }
+                th { background: #265c89; color: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                tbody tr:nth-child(even) { background: #EEF6FF; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                .cal-print-pass { background: #d4edda; color: #155724; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                .cal-print-fail { background: #f8d7da; color: #721c24; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                .cal-print-empty { color: #999; font-style: italic; text-align: center; }
+                @media print { body { margin: 0.4in; } }
+            `;
+            win.document.write(`<!DOCTYPE html><html><head><title>Calibration Data</title><meta charset="utf-8"><style>${css}</style></head><body>${buildPrintHTML()}</body></html>`);
+            win.document.close();
+            win.onload = () => { win.focus(); win.print(); };
+        });
         actions.appendChild(printBtn);
 
         // ── Widget object exposed for linking ───────────────────────────────
@@ -1454,32 +1537,10 @@
                 render();
                 sync();
             },
-            pullTestPoints(masterRows) {
-                if (group.viewMode === 'sheet') return;
-                let rowsAdded = false;
-                masterRows.forEach((_, ri) => {
-                    while (ri >= rows.length) { rows.push(Array(cols.length).fill('')); rowsAdded = true; }
-                });
-                if (rowsAdded) render();
-                const tpColIdxs = [];
-                cols.forEach((name, ci) => { if (/^(TEST POINT|Gauge \d+)$/i.test(name)) tpColIdxs.push(ci); });
-                masterRows.forEach((mRow, ri) => {
-                    tpColIdxs.forEach(ci => { rows[ri][ci] = mRow[ci] || ''; });
-                    calcError(ri);
-                });
-                rows.forEach((row, ri) => {
-                    row.forEach((val, ci) => {
-                        const inp = tableWrap.querySelector(`input[data-ri="${ri}"][data-ci="${ci}"]`);
-                        if (inp && document.activeElement !== inp) inp.value = val || '';
-                    });
-                });
-                const resolved = rows.map((row, ri) => row.map((_, ci) => cellVal(ri, ci)));
-                ta.value = hasAnyData() ? serialize(resolved, cols, null, null, null, null, gaugeSpecs) : '';
-                ta.dispatchEvent(new Event('change', { bubbles: true }));
-            },
         };
         ta._widget = widget;
         group.widgets.push(widget);
+        _built.add(config.textareaId);
 
         render(); sync();
         return true;
@@ -1659,7 +1720,23 @@
     function tryBuildAll() {
         const allFound = TABLES.every(config => document.getElementById(config.textareaId));
         if (!allFound) return;
-        TABLES.forEach(config => buildWidget(config));
+        TABLES.forEach(config => {
+            const ta = document.getElementById(config.textareaId);
+            const groupId = config.linkedFrom || config.textareaId;
+            const grp = LINK_GROUPS[groupId];
+            if (grp) {
+                // Remove stale widgets whose wrapper is no longer in the DOM
+                grp.widgets = grp.widgets.filter(w => {
+                    const wta = document.getElementById(w._config.textareaId);
+                    return wta && wta.previousElementSibling && wta.previousElementSibling.classList.contains('cal-wrapper');
+                });
+            }
+            // If wrapper was removed (page save/DOM update), allow rebuild
+            if (ta && !ta.previousElementSibling?.classList.contains('cal-wrapper')) {
+                _built.delete(config.textareaId);
+            }
+            buildWidget(config);
+        });
         tryAutoReconnectSerial();
     }
 
