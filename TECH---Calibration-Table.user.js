@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      6.0
+// @version      6.1
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing. Linked tables share columns, one-way tolerance sync (master→slave), custom unit input, sheet mode keeps pre/post data independent. Web Serial torque-tester input embedded in each table's action bar: click a cell, pull the wrench, value fills and auto-advances. Row deletion broadcasts to linked tables. Serial framing set to 1 stop bit matching this unit's proven-working config. Port is now cleanly closed on page navigation/refresh, with a short automatic retry on reconnect if the adapter's driver needs a moment to release — fixes "Open failed" and silently-connected-but-no-data states after refreshing.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -1200,18 +1200,18 @@
                 row.appendChild(snInp);
 
                 // Unit
-                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: 'Unit:' }));
+                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: 'Units:' }));
                 const unitDatalistId = 'cal-unit-dl-' + gi;
                 const unitInp = document.createElement('input');
                 unitInp.className = 'cal-col-input';
                 unitInp.style.cssText = 'width:90px;font-size:12px;';
                 unitInp.type = 'text';
-                unitInp.placeholder = 'Unit';
+                unitInp.placeholder = 'Units';
                 unitInp.value = spec.unit || '';
                 unitInp.setAttribute('list', unitDatalistId);
                 const datalist = document.createElement('datalist');
                 datalist.id = unitDatalistId;
-                ['Degrees', 'LBS', 'PSI', 'VDC', 'VAC'].forEach(u => {
+                ['PSI', 'inHg Vacuum', 'inHg Pressure', 'inWC Vacuum', 'inWC Pressure', 'LBS', 'Grams', 'KG'].forEach(u => {
                     const opt = document.createElement('option');
                     opt.value = u;
                     datalist.appendChild(opt);
@@ -1260,7 +1260,7 @@
                 const tolSimpleWrap = document.createElement('span');
                 tolSimpleWrap.style.cssText = isSection ? 'display:none' : 'display:inline-flex;align-items:center;gap:3px;';
                 tolSimpleWrap.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: '%TOL±:' }));
-                const tolInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '#' });
+                const tolInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '%' });
                 tolInp.style.cssText = 'width:50px;font-size:12px;'; tolInp.value = spec.tolerance || '';
                 tolInp.addEventListener('input', () => {
                     spec.tolerance = tolInp.value; sync();
