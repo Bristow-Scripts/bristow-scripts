@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      5.7
+// @version      6.0
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing. Linked tables share columns, one-way tolerance sync (master→slave), custom unit input, sheet mode keeps pre/post data independent. Web Serial torque-tester input embedded in each table's action bar: click a cell, pull the wrench, value fills and auto-advances. Row deletion broadcasts to linked tables. Serial framing set to 1 stop bit matching this unit's proven-working config. Port is now cleanly closed on page navigation/refresh, with a short automatic retry on reconnect if the adapter's driver needs a moment to release — fixes "Open failed" and silently-connected-but-no-data states after refreshing.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -81,6 +81,10 @@
         }
         .cal-table tbody td.del-col button:hover { opacity: 1; }
 
+        /* ── FOOTER COPY BUTTONS ── */
+        .cal-table tfoot td button { transition: background .12s; }
+        .cal-table tfoot td button:hover { background: #2b6699 !important; }
+
         /* ── SHEET MODE ── */
         .cal-sheet-table { border-collapse: collapse; width: 100%; min-width: 500px; font-size: 12px; background: #fff; }
         .cal-sheet-table th, .cal-sheet-table td { border: 1px solid #d4d4d4; padding: 0; white-space: nowrap; }
@@ -133,8 +137,29 @@
             padding: 3px 8px; border: 1px solid rgba(33,37,41,0.2);
             border-radius: 3px; width: 140px; color: #001c40;
         }
+        .cal-col-input::placeholder { letter-spacing: 1px; }
         .cal-hint { font-size: 11px; color: #999; }
         .cal-tol-cb { width: 16px; height: 16px; vertical-align: middle; cursor: pointer; }
+
+        /* ── TOGGLE SWITCH ── */
+        .cal-toggle { position: relative; display: inline-block; height: 22px; vertical-align: middle; margin: 0 4px; cursor: pointer; }
+        .cal-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+        .cal-toggle-track {
+            display: flex; align-items: center; height: 22px; border-radius: 11px;
+            background: #e0e0e0; font-size: 10px; font-weight: 700;
+            overflow: hidden; user-select: none; border: 1px solid #bbb;
+        }
+        .cal-toggle-track span { padding: 0 7px; white-space: nowrap; transition: background .2s, color .2s; position: relative; z-index: 1; line-height: 22px; }
+        .cal-toggle-track .cal-toggle-on { color: #fff; background: #337ab7; border-radius: 0 11px 11px 0; }
+        .cal-toggle-track .cal-toggle-off { color: #555; background: transparent; border-radius: 11px 0 0 11px; }
+        .cal-toggle input:checked + .cal-toggle-track .cal-toggle-on { background: #337ab7; color: #fff; }
+        .cal-toggle input:checked + .cal-toggle-track .cal-toggle-off { background: #e0e0e0; color: #999; }
+        .cal-toggle input:not(:checked) + .cal-toggle-track .cal-toggle-on { background: #e0e0e0; color: #999; }
+        .cal-toggle input:not(:checked) + .cal-toggle-track .cal-toggle-off { background: #337ab7; color: #fff; }
+        .cal-toggle input:disabled + .cal-toggle-track { opacity: .4; cursor: not-allowed; }
+
+        /* ── SPEC ROW LABELS ── */
+        .cal-spec-label { font-size: 11px; font-weight: 700; color: #333; }
         .cal-head-edit {
             background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.5);
             border-radius: 2px; color: #fff; font-size: 12px;
@@ -163,6 +188,7 @@
             textarea[id^="OrderHead_CustomFields_"] { display: none !important; }
             .cal-actions { display: none !important; }
             .cal-label { display: none !important; }
+            .cal-table tfoot { display: none !important; }
             .cal-table-wrap { overflow: visible !important; border: none !important; }
             .cal-table, .cal-sheet-table { min-width: 0 !important; width: 100% !important; }
             .cal-table thead tr {
@@ -259,7 +285,7 @@
 
     // ── Restore previously saved table data ──────────────────────────────────
     function deserialize(text) {
-        if (!text || !text.includes('|')) return { rows: null, headers: null, gaugeSpecs: [{ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '', tolHigh: '', tolSplit: '' }] };
+        if (!text || !text.includes('|')) return { rows: null, headers: null, gaugeSpecs: [{ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '0', tolHigh: '', tolSplit: '' }] };
         const lines = text.split('\n');
         const gaugeSpecs = [];
         const dataLines = lines.filter(l => /^\|/.test(l));
@@ -408,7 +434,7 @@
         if (high <= low) return null;
         const raw = (spec.tolSplit || '').trim();
         if (!raw) return null;
-        const parts = raw.split('-').map(s => parseFloat(s.trim()));
+        const parts = raw.split(/[-/,]/).map(s => parseFloat(s.trim()));
         if (parts.length === 1 && !isNaN(parts[0])) {
             return parts[0];
         }
@@ -526,13 +552,12 @@
             } else if (existing.gaugeSpecs && existing.gaugeSpecs.length) {
                 gaugeSpecs = existing.gaugeSpecs;
             } else {
-                gaugeSpecs = [{ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '', tolHigh: '', tolSplit: '' }];
+                gaugeSpecs = [{ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '0', tolHigh: '', tolSplit: '' }];
             }
             group = LINK_GROUPS[groupId] = {
                 cols, gaugeSpecs,
                 viewMode: cardMode ? 'card' : 'sheet',
                 widgets: [],
-                initialSyncDone: false,
             };
         }
 
@@ -630,10 +655,6 @@
             saveGaugeSpecs(config.textareaId, gaugeSpecs);
             ta.dispatchEvent(new Event('change', { bubbles: true }));
             ta.dispatchEvent(new Event('input',  { bubbles: true }));
-            // Master pushes TEST POINT / Gauge N values into any linked slave table
-            if (!isSlave) {
-                group.widgets.forEach(w => { if (w !== widget && w.isSlave) w.pullTestPoints(rows); });
-            }
             _isSyncing = false;
         }
 
@@ -1035,6 +1056,34 @@
                 tdDel.appendChild(delBtn);
             });
 
+            // Per-column "↓ Post" buttons — master table only
+            if (!isSlave) {
+                const tfoot = document.createElement('tfoot');
+                const ftr = tfoot.insertRow();
+                const ftdNum = document.createElement('td'); ftdNum.className = 'row-num'; ftr.appendChild(ftdNum);
+                cols.forEach((col, ci) => {
+                    const ftd = document.createElement('td');
+                    ftd.style.cssText = 'text-align:center;padding:2px;border:1px solid #dde3ea;';
+                    const isCopyable = /^(TEST POINT|Gauge \d+|UUT(\s*\d+)?)$/i.test(col);
+                    if (isCopyable) {
+                        const btn = document.createElement('button');
+                        btn.type = 'button'; btn.textContent = '\u2193 Post';
+                        btn.title = 'Copy ' + col + ' values to Post Data table';
+                        btn.style.cssText = 'font-size:10px;padding:1px 5px;background:#337ab7;color:#fff;border:none;border-radius:3px;cursor:pointer;';
+                        btn.addEventListener('click', () => {
+                            const slave = group.widgets.find(w => w.isSlave);
+                            if (!slave) return;
+                            slave._rows.forEach((sRow, ri) => { sRow[ci] = rows[ri] ? rows[ri][ci] || '' : ''; });
+                            slave.render(); slave.sync();
+                        });
+                        ftd.appendChild(btn);
+                    }
+                    ftr.appendChild(ftd);
+                });
+                const ftdDel = document.createElement('td'); ftdDel.style.cssText = 'border:1px solid #dde3ea;'; ftr.appendChild(ftdDel);
+                table.appendChild(tfoot);
+            }
+
             tableWrap.appendChild(table);
             refreshErrorCols();
         }
@@ -1131,12 +1180,13 @@
                 row.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-bottom:2px;';
 
                 const label = document.createElement('span');
-                label.style.cssText = 'font-weight:600;color:#265c89;min-width:55px;';
+                label.className = 'cal-spec-label';
+                label.style.cssText = 'color:#265c89;min-width:55px;';
                 label.textContent = gaugeSpecs.length > 1 ? 'Gauge ' + (gi + 1) : 'Specs';
                 row.appendChild(label);
 
                 // S/N first
-                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: 'S/N:' }));
+                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: 'S/N:' }));
                 const snInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: 'Serial #' });
                 snInp.style.cssText = 'width:110px;font-size:12px;'; snInp.value = spec.serial || '';
                 snInp.addEventListener('input', () => {
@@ -1150,6 +1200,7 @@
                 row.appendChild(snInp);
 
                 // Unit
+                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: 'Unit:' }));
                 const unitDatalistId = 'cal-unit-dl-' + gi;
                 const unitInp = document.createElement('input');
                 unitInp.className = 'cal-col-input';
@@ -1179,24 +1230,20 @@
                 // ── Tolerance section ──
                 const isSection = spec.tolMode === 'section';
 
-                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: '%TOL±:' }));
-                const tolInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '#' });
-                tolInp.style.cssText = 'width:50px;font-size:12px;'; tolInp.value = spec.tolerance || '';
-                tolInp.disabled = isSection;
-                tolInp.addEventListener('input', () => {
-                    spec.tolerance = tolInp.value; sync();
-                    if (!isSlave) {
-                        group.widgets.forEach(w => {
-                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].tolerance = tolInp.value; }
-                        });
-                    }
-                });
-                row.appendChild(tolInp);
-
+                // Toggle switch (always visible, placed after Unit)
+                const tolToggle = document.createElement('label');
+                tolToggle.className = 'cal-toggle';
+                tolToggle.title = 'Toggle between %TOL± (simple) and %FS (section-based) tolerance';
                 const tolCheckbox = document.createElement('input');
                 tolCheckbox.type = 'checkbox'; tolCheckbox.checked = isSection;
-                tolCheckbox.className = 'cal-tol-cb';
-                tolCheckbox.title = 'Section-based tolerance (% of full scale) — also switches column to %FS ERROR';
+                const tolTrack = document.createElement('span');
+                tolTrack.className = 'cal-toggle-track';
+                const offLabel = document.createElement('span'); offLabel.className = 'cal-toggle-off'; offLabel.textContent = '%TOL';
+                const onLabel = document.createElement('span'); onLabel.className = 'cal-toggle-on'; onLabel.textContent = '%FS';
+                tolTrack.appendChild(offLabel);
+                tolTrack.appendChild(onLabel);
+                tolToggle.appendChild(tolCheckbox);
+                tolToggle.appendChild(tolTrack);
                 tolCheckbox.addEventListener('change', () => {
                     spec.tolMode = tolCheckbox.checked ? 'section' : 'simple'; sync();
                     if (!isSlave) {
@@ -1207,13 +1254,31 @@
                     render();
                     buildSpecRows();
                 });
-                row.appendChild(tolCheckbox);
-                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: '%FS Tol', style: 'margin-left:2px;margin-right:6px;' }));
+                row.appendChild(tolToggle);
 
-                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: '#BS:' }));
+                // Simple mode: %TOL± input
+                const tolSimpleWrap = document.createElement('span');
+                tolSimpleWrap.style.cssText = isSection ? 'display:none' : 'display:inline-flex;align-items:center;gap:3px;';
+                tolSimpleWrap.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: '%TOL±:' }));
+                const tolInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '#' });
+                tolInp.style.cssText = 'width:50px;font-size:12px;'; tolInp.value = spec.tolerance || '';
+                tolInp.addEventListener('input', () => {
+                    spec.tolerance = tolInp.value; sync();
+                    if (!isSlave) {
+                        group.widgets.forEach(w => {
+                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].tolerance = tolInp.value; }
+                        });
+                    }
+                });
+                tolSimpleWrap.appendChild(tolInp);
+                row.appendChild(tolSimpleWrap);
+
+                // Section mode: Lo, Hi, %FS
+                const tolSectionWrap = document.createElement('span');
+                tolSectionWrap.style.cssText = isSection ? 'display:inline-flex;align-items:center;gap:3px;' : 'display:none';
+                tolSectionWrap.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: 'Lo:' }));
                 const lowInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '#' });
                 lowInp.style.cssText = 'width:50px;font-size:12px;'; lowInp.value = spec.tolLow || '';
-                lowInp.disabled = !isSection;
                 lowInp.addEventListener('input', () => {
                     spec.tolLow = lowInp.value; sync();
                     if (!isSlave) {
@@ -1222,12 +1287,10 @@
                         });
                     }
                 });
-                row.appendChild(lowInp);
-
-                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: '#FS:' }));
+                tolSectionWrap.appendChild(lowInp);
+                tolSectionWrap.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: 'Hi:' }));
                 const highInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '#' });
                 highInp.style.cssText = 'width:50px;font-size:12px;'; highInp.value = spec.tolHigh || '';
-                highInp.disabled = !isSection;
                 highInp.addEventListener('input', () => {
                     spec.tolHigh = highInp.value; sync();
                     if (!isSlave) {
@@ -1236,12 +1299,10 @@
                         });
                     }
                 });
-                row.appendChild(highInp);
-
-                row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: '%FS:' }));
-                const splitInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '% / %-%-%' });
+                tolSectionWrap.appendChild(highInp);
+                tolSectionWrap.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: '%FS:' }));
+                const splitInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '%-%-%' });
                 splitInp.style.cssText = 'width:65px;font-size:12px;'; splitInp.value = spec.tolSplit || '';
-                splitInp.disabled = !isSection;
                 splitInp.addEventListener('input', () => {
                     spec.tolSplit = splitInp.value; sync();
                     if (!isSlave) {
@@ -1250,7 +1311,8 @@
                         });
                     }
                 });
-                row.appendChild(splitInp);
+                tolSectionWrap.appendChild(splitInp);
+                row.appendChild(tolSectionWrap);
 
                 specWrap.appendChild(row);
             });
@@ -1297,9 +1359,9 @@
             }
             const gaugeNum = maxGauge === 0 ? 2 : maxGauge + 1;
             cols.push('Gauge ' + gaugeNum, 'UUT ' + gaugeNum, '% ERROR ' + gaugeNum, 'PASS/FAIL ' + gaugeNum);
-            gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '', tolHigh: '', tolSplit: '' });
+            gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '0', tolHigh: '', tolSplit: '' });
             group.widgets.forEach(w => {
-                if (w !== widget && w.isSlave) w._gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '', tolHigh: '', tolSplit: '' });
+                if (w !== widget && w.isSlave) w._gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '0', tolHigh: '', tolSplit: '' });
             });
             broadcastStructureChange();
         });
@@ -1338,15 +1400,15 @@
         clearBtn.addEventListener('click', () => {
             if (!confirm('Clear this table\u2019s data? Column headers are shared with the linked table and will also reset.')) return;
             cols.length = 0; cols.push(...config.columns);
-            gaugeSpecs.length = 0; gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '', tolHigh: '', tolSplit: '' });
+            gaugeSpecs.length = 0; gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '0', tolHigh: '', tolSplit: '' });
             group.widgets.forEach(w => {
-                if (w !== widget && w.isSlave) { w._gaugeSpecs.length = 0; w._gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '', tolHigh: '', tolSplit: '' }); }
+                if (w !== widget && w.isSlave) { w._gaugeSpecs.length = 0; w._gaugeSpecs.push({ unit: '', fsPct: '', fsVal: '', serial: '', tolerance: '', tolMode: 'simple', tolLow: '0', tolHigh: '', tolSplit: '' }); }
             });
             group.widgets.forEach(w => { if (w === widget) w.resetRows(); else w.onStructureChange(); });
         });
         actions.appendChild(clearBtn);
 
-        actions.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: 'Tab · Enter · Arrows · Dbl-click header to rename · =formula (e.g. =A1+B1) · max ' + MAX_COLS + ' cols' }));
+        if (!isSlave) actions.appendChild(Object.assign(document.createElement('span'), { className: 'cal-hint', textContent: 'Tab · Enter · Arrows · Dbl-click header to rename · =formula (e.g. =A1+B1) · max ' + MAX_COLS + ' cols' }));
         if (!isSlave) attachSerialControls(actions);
 
         // Print button — placed after serial controls
@@ -1598,16 +1660,6 @@
         const allFound = TABLES.every(config => document.getElementById(config.textareaId));
         if (!allFound) return;
         TABLES.forEach(config => buildWidget(config));
-        // Once a linked pair is fully built, do a one-time push of master's
-        // test points into the slave (handles first load / previously drifted data).
-        Object.keys(LINK_GROUPS).forEach(gid => {
-            const group = LINK_GROUPS[gid];
-            if (!group.initialSyncDone && group.widgets.length > 1) {
-                const master = group.widgets.find(w => !w.isSlave);
-                if (master) master.sync();
-                group.initialSyncDone = true;
-            }
-        });
         tryAutoReconnectSerial();
     }
 
