@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      6.1
+// @version      6.2
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing. Linked tables share columns, one-way tolerance sync (master→slave), custom unit input, sheet mode keeps pre/post data independent. Web Serial torque-tester input embedded in each table's action bar: click a cell, pull the wrench, value fills and auto-advances. Row deletion broadcasts to linked tables. Serial framing set to 1 stop bit matching this unit's proven-working config. Port is now cleanly closed on page navigation/refresh, with a short automatic retry on reconnect if the adapter's driver needs a moment to release — fixes "Open failed" and silently-connected-but-no-data states after refreshing.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -1069,7 +1069,7 @@
                         const btn = document.createElement('button');
                         btn.type = 'button'; btn.textContent = '\u2193 Post';
                         btn.title = 'Copy ' + col + ' values to Post Data table';
-                        btn.style.cssText = 'font-size:10px;padding:1px 5px;background:#337ab7;color:#fff;border:none;border-radius:3px;cursor:pointer;';
+                        btn.style.cssText = 'font-size:12px;padding:3px 10px;background:#337ab7;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:600;';
                         btn.addEventListener('click', () => {
                             const slave = group.widgets.find(w => w.isSlave);
                             if (!slave) return;
