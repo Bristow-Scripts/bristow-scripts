@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      6.3
+// @version      6.5
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -16,17 +16,17 @@
     // ─── CONFIG ────────────────────────────────────────────────────────────────
     const TABLES = [
         {
-            textareaId: 'OrderHead_CustomFields_10__Text',
+            textareaId: 'OrderHead_CustomFields_12__Text',
             label: 'Calibration Data',
             columns: ['TEST POINT', 'UUT', '% ERROR', 'PASS/FAIL'],
             defaultRows: 5,
         },
         {
-            textareaId: 'OrderHead_CustomFields_11__Text',
+            textareaId: 'OrderHead_CustomFields_13__Text',
             label: 'Calibration Data (cont.)',
             columns: ['TEST POINT', 'UUT', '% ERROR', 'PASS/FAIL'],
             defaultRows: 5,
-            linkedFrom: 'OrderHead_CustomFields_10__Text',
+            linkedFrom: 'OrderHead_CustomFields_12__Text',
         },
     ];
 
@@ -217,11 +217,13 @@
             '|' + displayCols.map((_, ci) => ' ' + String(row[ci] || '').padEnd(widths[ci]) + ' ').join('|') + '|';
         const specParts = [];
         if (gaugeSpecs && gaugeSpecs.length > 0) {
+            const showGaugeLabel = gaugeSpecs.length > 1;
             gaugeSpecs.forEach((spec, i) => {
-                const p = ['Gauge ' + (i + 1)];
+                const p = [];
+                if (showGaugeLabel) p.push('Gauge ' + (i + 1));
                 if (spec.serial) p.push('SN: ' + spec.serial);
                 if (spec.unit) p.push('Unit: ' + spec.unit);
-                specParts.push(p.join(' - '));
+                if (p.length) specParts.push(p.join(' - '));
             });
         }
         // Center each gauge label over its column section
