@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      5.7
+// @version      5.8
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -38,9 +38,9 @@
     ];
     const HIDDEN_FIELD_ROW_SELECTORS = [
         '#OrderHead_CustomFields_3__Date','#OrderHead_CustomFields_4__Date','#OrderHead_CustomFields_5__Date',
-        '#OrderHead_CustomFields_6__Text','#OrderHead_CustomFields_13__Label','#OrderHead_CustomFields_14__Label',
-        '#OrderHead_CustomFields_16__Label','#OrderHead_CustomFields_13__Text','#OrderHead_CustomFields_14__Text',
-        '#OrderHead_CustomFields_16__Text','#AerospaceHead_CostCenter','#AerospaceHead_EASA',
+        '#OrderHead_CustomFields_6__Text',
+        '#OrderHead_CustomFields_16__Label','#OrderHead_CustomFields_16__Text',
+        '#AerospaceHead_CostCenter','#AerospaceHead_EASA',
         '#AerospaceHead_ShippedBy','#OrderHead_CustomerContactId','#OrderHead_TermsAndConditions',
         '#OrderHead_ShippingInstructions',
     ];
@@ -125,7 +125,7 @@
             css.push('#collapseAdditional.collapse.in > [class*="col-md-"] { width: auto !important; max-width: none !important; flex: none !important; margin-bottom: 0; }');
             css.push('#collapseAdditional .table.lq-table-info { margin-bottom: 0; }');
             css.push('#collapseAdditional .k-datepicker,#collapseAdditional .k-picker { width: 100% !important; }');
-            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_13__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_14__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_16__Label) { display: none !important; }');
+            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_16__Label) { display: none !important; }');
             css.push('#collapseAdditional > div:has(a[href*="ReportName=Optional_Report"]) { grid-column: 1 / -1; order: 1; }');
             css.push('#collapseAdditional > br { display: none; }');
 
@@ -142,6 +142,8 @@
             css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_10__Label) { order: 13; }');
             css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_11__Label) { order: 14; }');
             css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_12__Label) { order: 15; }');
+            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_13__Label) { grid-column: 1 / -1; order: 16; }');
+            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_14__Label) { grid-column: 1 / -1; order: 17; }');
             // Hide the Uploads section
             //css.push('div.row:has(#HeaderInfo_Description),div.row:has(#HeaderInfo_JobNotes),div.row:has(.bom-line),div.row:has(input[value="Save"]),div.well-sm:has(a[data-target="#collapseDocs"]) { display: none !important; }');
         }
