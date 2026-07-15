@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Auto Grow Work Order Description
 // @namespace    http://tampermonkey.net/
-// @version      1.7
+// @version      1.8
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Grow-Work-Order-Description.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Grow-Work-Order-Description.user.js
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -11,12 +11,13 @@
 (function () {
     'use strict';
     var MIN_HEIGHT = 233;
+    // Only the WO description textarea gets the forced-size auto-grow treatment
+    // while editing. Fields 10/11 stay their natural size in edit mode — they
+    // only auto-expand once rendered as read-only view spans (see below).
     var TEXTAREA_IDS = [
-        "AerospaceHead_WorkOrderDesc",
-        "OrderHead_CustomFields_10__Text",
-        "OrderHead_CustomFields_11__Text"
+        "AerospaceHead_WorkOrderDesc"
     ];
-    // Custom field indices that render as read-only <span> instead of <textarea>
+    // Custom field indices that render as read-only <span> in view mode
     var SPAN_FIELD_INDICES = [10, 11];
 
     function autoGrow(textarea) {
@@ -43,14 +44,17 @@
         if (!hiddenLabel) return;
         var td = hiddenLabel.closest("td");
         if (!td) return;
-        // The content span is the one without the validation classes
         var span = td.querySelector("span:not(.field-validation-valid):not(.text-danger)");
-        if (!span || span.dataset.autoGrowAttached) return;
-        span.dataset.autoGrowAttached = "1";
+        if (!span) return;
+        // Always (re)apply — cheap, and guards against the site swapping the
+        // span's text content in place (a characterData mutation) without
+        // ever removing/re-adding the node, which would otherwise leave a
+        // stale/unstyled span behind if we only styled it once.
         span.style.display = "block";
         span.style.whiteSpace = "pre";
         span.style.fontFamily = "monospace";
         span.style.overflowX = "auto";
+        span.dataset.autoGrowAttached = "1";
     }
 
     function init() {
@@ -79,10 +83,13 @@
             init();
         }, { debounce: 200 });
     } else {
+        // characterData: true is the key addition — catches the case where
+        // the site updates a span's text in place after Save without
+        // replacing the element itself.
         var observer = new MutationObserver(function () {
             if (!anyPresent()) return;
             init();
         });
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     }
 })();
