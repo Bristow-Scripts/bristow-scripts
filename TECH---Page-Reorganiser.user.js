@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      5.8
+// @version      5.9
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -47,7 +47,8 @@
     const FROZEN_FIELDS = [
         { pickerId:'OrderHead_CustomerId' },{ pickerId:'OrderHead_SelectedOrderTaxes', isMulti:true },
         { pickerId:'OrderHead_Project', isPlainInput:true },{ pickerId:'OrderHead_CustomFields_1__OptionId' },
-        { pickerId:'OrderHead_CustomFields_2__OptionId' },{ pickerId:'OrderHead_CustomFields_9__Text', isPlainInput:true },
+        { pickerId:'OrderHead_CustomFields_2__OptionId' },
+        { pickerId:'OrderHead_CustomFields_11__Text', isPlainInput:true },
         { pickerId:'AerospaceHead_AircraftTailNumber', isPlainInput:true },
         { pickerId:'AerospaceHead_SerialNumber', isPlainInput:true },
         { pickerId:'AerospaceHead_ControlledGood', isCheckbox:true },
@@ -90,6 +91,8 @@
             css.push('tr:has(a[href^="/Orders/Quotes/Edit"]),tr:has(span[data-valmsg-for="OrderHead.OrderTaxes"]) { display: none !important; }');
             css.push('tr:has(a.btn-primary[href="#AddPartTarget"]):has(a.btn-danger[onclick="removeComponent()"]) { display: none !important; }');
             css.push('button[onclick*="listBoxToComment"]:not([onclick*="OrderHead_CustomFields_0__OptionId"]),button[onclick*="dateBoxToComment"],button[onclick*="textBoxToComment"] { display: none !important; }');
+            css.push('.tech-frozen-overlay { display: inline !important; font-family: inherit !important; white-space: normal !important; overflow-x: visible !important; }');
+            css.push('.k-picker[aria-controls*="CustomFields_10"] { display: inline-flex !important; white-space: nowrap !important; overflow: hidden !important; }');
 
             HIDDEN_HEADER_SECTIONS.forEach(function(s){
                 css.push(s + ' { display: none !important; }');
@@ -107,7 +110,7 @@
             css.push('tr.sourceLine > td:has(input[id^="OrderLineSourceCost_"]),tr.sourceLine > td:has(input[id^="OrderLineSourceMarkup_"]),tr.sourceLine > td:has(input[id^="OrderLineSourcePrice_"]),tr.sourceLine > td:has(input[id^="OrderLineSourceSubtotal_"]) { display: none !important; }');
             css.push('tr.sourceLine > td:nth-child(8) { display: none !important; }');
             css.push('.col-md-8:has([data-target="#order_colAdvSearch"]),#order_colAdvSearch { display: none !important; }');
-            css.push('#collapseAdditional > div:nth-child(10),#collapseAerospace > div:nth-child(1) { display: none !important; }');
+            css.push('#collapseAerospace > div:nth-child(1) { display: none !important; }');
             css.push('#collapseAerospace > div:nth-child(2) > table > tbody > tr:nth-child(2) { display: none !important; }');
             css.push('#collapseAerospace > div:nth-child(2) { display: inline-block !important; width: auto !important; float: none !important; vertical-align: top !important; margin-right: 20px; }');
             css.push('#collapseAerospace > div:nth-child(3) { display: inline-block !important; width: auto !important; float: none !important; vertical-align: top !important; }');
@@ -121,31 +124,32 @@
             css.push('.col-md-2:has(#ServiceCategorySearch),.col-md-2:has(#ServiceNumberSearch),.col-md-2:has(#ServiceAltServiceNumberSearch) { display: none !important; }');
             css.push('button.btn-danger[title="Hide All"],button.btn-warning[title="Hide"] { display: none !important; }');
 
+            // Additional Info section — grid layout
             css.push('#collapseAdditional.collapse.in { display: grid !important; grid-template-columns: repeat(3, 1fr); column-gap: 20px; row-gap: 10px; align-items: start; }');
             css.push('#collapseAdditional.collapse.in > [class*="col-md-"] { width: auto !important; max-width: none !important; flex: none !important; margin-bottom: 0; }');
             css.push('#collapseAdditional .table.lq-table-info { margin-bottom: 0; }');
-            css.push('#collapseAdditional .k-datepicker,#collapseAdditional .k-picker { width: 100% !important; }');
-            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_16__Label) { display: none !important; }');
-            css.push('#collapseAdditional > div:has(a[href*="ReportName=Optional_Report"]) { grid-column: 1 / -1; order: 1; }');
+            css.push('#collapseAdditional .k-datepicker { width: 100% !important; }');
             css.push('#collapseAdditional > br { display: none; }');
+            css.push('#collapseAdditional > div:has(a[href*="ReportName=Optional_Report"]) { grid-column: 1 / -1; order: 1; }');
 
+            // Hide fields that are no longer needed
+            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_16__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_7__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_8__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_15__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_18__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_3__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_4__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_5__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_6__Label) { display: none !important; }');
+
+            // Full-width fields below the grid
+            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_12__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_13__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_14__Label) { grid-column: 1 / -1; }');
+            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_12__Label) { order: 9; }');
+            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_13__Label) { order: 10; }');
+            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_14__Label) { order: 11; }');
+
+            // Grid field ordering
             var fieldOrder = [
                 ['OrderHead_CustomFields_0__Label',2,1], ['OrderHead_CustomFields_1__Label',3,2], ['OrderHead_CustomFields_2__Label',4,3],
-                ['OrderHead_CustomFields_8__Label',5,1], ['OrderHead_CustomFields_7__Label',6,2], ['OrderHead_CustomFields_9__Label',7,3],
-                ['OrderHead_CustomFields_3__Label',8,1], ['OrderHead_CustomFields_4__Label',9,2], ['OrderHead_CustomFields_5__Label',10,3],
-                ['OrderHead_CustomFields_6__Label',11,1], ['OrderHead_CustomFields_15__Label',12,1]
+                ['OrderHead_CustomFields_10__Label',5,1], ['OrderHead_CustomFields_9__Label',6,2], ['OrderHead_CustomFields_11__Label',7,3],
+                ['OrderHead_CustomFields_17__Label',8,1]
             ];
             fieldOrder.forEach(function(f) {
                 css.push('#collapseAdditional > div:has(#' + f[0] + ') { order: ' + f[1] + '; grid-column: ' + f[2] + '; }');
             });
-            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_10__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_11__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_12__Label) { grid-column: 1 / -1; }');
-            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_10__Label) { order: 13; }');
-            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_11__Label) { order: 14; }');
-            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_12__Label) { order: 15; }');
-            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_13__Label) { grid-column: 1 / -1; order: 16; }');
-            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_14__Label) { grid-column: 1 / -1; order: 17; }');
-            // Hide the Uploads section
-            //css.push('div.row:has(#HeaderInfo_Description),div.row:has(#HeaderInfo_JobNotes),div.row:has(.bom-line),div.row:has(input[value="Save"]),div.well-sm:has(a[data-target="#collapseDocs"]) { display: none !important; }');
         }
         staticCSS = css.join('\n');
         return staticCSS;
@@ -249,10 +253,11 @@
     // ═════════════════════════════════════════════════════════════════════════
 
     function restoreShelfFilter() {
-    document.querySelectorAll('#OrderHead_CustomFields_0__OptionId_listbox .k-list-item').forEach(function(li) {
-        li.style.display = '';
-    });
-}
+        document.querySelectorAll('#OrderHead_CustomFields_0__OptionId_listbox .k-list-item').forEach(function(li) {
+            li.style.display = '';
+        });
+    }
+
     function toggleTechMode() {
         techMode = !techMode;
         localStorage.setItem(STORAGE_KEY, techMode);
@@ -262,6 +267,7 @@
         if (track) track.style.background = techMode ? '#28a745' : '#555';
         if (knob) knob.style.left = techMode ? '22px' : '2px';
 
+        staticCSS = null;
         applyTechStyles();
         try {
             if (techMode) {
@@ -287,7 +293,6 @@
         } catch(e) { console.warn('[TechMode] toggle error:', e); }
     }
 
-
     function hideButtonsById() {
         if (!techMode) return;
         HIDDEN_BUTTON_IDS.forEach(function(id){
@@ -303,7 +308,6 @@
         });
     }
 
-
     function restoreButtonsById() {
         HIDDEN_BUTTON_IDS.forEach(function(id){
             var el = document.getElementById(id);
@@ -317,6 +321,7 @@
             }
         });
     }
+
     function hideHeaderSections() {
         if (!techMode) return;
         HIDDEN_HEADER_SECTIONS.forEach(function(target){
@@ -324,12 +329,14 @@
             if (el) { el.closest('.row') ? el.closest('.row').style.display = 'none' : el.style.display = 'none'; }
         });
     }
+
     function restoreHeaderSections() {
         HIDDEN_HEADER_SECTIONS.forEach(function(target){
             var el = document.querySelector(target);
             if (el) { el.closest('.row') ? el.closest('.row').style.display = '' : el.style.display = ''; }
         });
     }
+
     function hideStaticSections() {
         if (!techMode) return;
         HIDDEN_STATIC_SECTIONS.forEach(function(target){
@@ -340,6 +347,7 @@
             }
         });
     }
+
     function restoreStaticSections() {
         HIDDEN_STATIC_SECTIONS.forEach(function(target){
             var tog = document.querySelector('.accordion-toggle[data-target="' + target + '"]');
@@ -349,6 +357,7 @@
             }
         });
     }
+
     function hideJobsContent() {
         if (!isJobsPage || !techMode) return;
         document.querySelectorAll('.btn-group a[href="#HeaderTarget"]').forEach(function(a){
@@ -369,10 +378,12 @@
             if (sp) sp.classList.add('active','in');
         }
     }
+
     function restoreJobsContent() {
         if (!isJobsPage) return;
         document.querySelectorAll('.' + JOBS_HIDE_CLASS).forEach(function(el){ el.style.display = ''; el.classList.remove(JOBS_HIDE_CLASS) });
     }
+
     function hideBtns() {
         if (!techMode || !isOrderPage) return;
         document.querySelectorAll('table.table-bordered.table-condensed.small .btn-warning').forEach(function(btn){
@@ -382,15 +393,18 @@
             if (!btn.classList.contains(HIDE_BUTTONS_CLASS)) { btn.classList.add(HIDE_BUTTONS_CLASS); btn.style.display = 'none'; }
         });
     }
+
     function restoreBtns() {
         document.querySelectorAll('.' + HIDE_BUTTONS_CLASS).forEach(function(el){ el.style.display = ''; el.classList.remove(HIDE_BUTTONS_CLASS) });
     }
+
     function renameCompleteOrderByHeader() {
         if (!techMode) return;
         (document.getElementById('HeaderSection') || document).querySelectorAll('th').forEach(function(th){
             if (th.textContent.trim() === 'Complete Order By') th.textContent = 'Completed Order On';
         });
     }
+
     function fixJumpLinks() {
         if (!techMode) return;
         document.querySelectorAll('.btn-group.btn-group-sm a[href^="#"]').forEach(function(btn){
@@ -408,6 +422,7 @@
             };
         });
     }
+
     function hideOrderLineHeaders() {
         if (!techMode) return;
         document.querySelectorAll('tr.lq-table-header-w-options th').forEach(function(th){
@@ -416,6 +431,7 @@
             }
         });
     }
+
     function restoreOrderLineHeaders() {
         document.querySelectorAll('tr.lq-table-header-w-options th').forEach(function(th){
             if (['Cost','Markup','Price','Per','Subtotal'].indexOf(th.textContent.trim()) !== -1) {
@@ -451,6 +467,7 @@
             snInput.insertAdjacentElement('afterend', overlay);
         }
     }
+
     function restoreSerialNumberRow() {
         var existing = document.querySelector('tr[data-serial-clone]');
         if (!existing) return;
@@ -458,6 +475,7 @@
         if (prevRow && prevRow.children.length >= 4) { prevRow.children[2].style.display = ''; prevRow.children[3].style.display = ''; }
         existing.remove();
     }
+
     function moveInspectionButton() {
         var group = document.querySelector('.btn-group.btn-group-sm:has(a[href="#HeaderTarget"])');
         if (!group) return;
@@ -482,6 +500,7 @@
         var span = row.querySelector('span');
         return span ? span.textContent.trim() : '';
     }
+
     function addInlineNoteRow(lineRow) {
         var lineId = lineRow.id.replace('OrderLine_', '');
         if (!lineId || lineRow.dataset.techNoteAdded) return;
@@ -546,6 +565,7 @@
         lineRow.parentNode.insertBefore(newRow, lineRow.nextSibling);
         lineRow.dataset.techNoteAdded = 'true';
     }
+
     function repositionNoteRow(lineId) {
         var noteRow = document.querySelector('.' + INLINE_NOTE_CLASS + '[data-line-id="' + lineId + '"]');
         if (!noteRow) return;
@@ -554,6 +574,7 @@
             sa.parentNode.insertBefore(noteRow, sa);
         }
     }
+
     function updateDisplayedNote(lineId, text) {
         var notesRow = document.getElementById('OrderLineNotes_' + lineId);
         if (notesRow) {
@@ -579,6 +600,7 @@
             }
         }
     }
+
     function saveInlineNote(lineId, textarea, saveBtn) {
         var noteText = textarea.value;
         var origLabel = saveBtn.textContent;
@@ -590,6 +612,7 @@
             saveViaPopup(lineId, noteText, saveBtn, origLabel);
         }
     }
+
     function directSave(lineId, noteText, saveBtn, origLabel) {
         var data = techAjaxSaveData;
         var url = techAjaxSaveUrl;
@@ -620,6 +643,7 @@
             }
         });
     }
+
     function saveViaPopup(lineId, noteText, saveBtn, origLabel) {
         var hider = document.createElement('style');
         hider.id = 'tech-popup-hider';
@@ -665,6 +689,7 @@
         };
         setTimeout(function(){ tryFill(15); }, 150);
     }
+
     function addInlineNotesToAllLines() {
         if (!isOrderPage) return;
         document.querySelectorAll('tr.line-item[id^="OrderLine_"]').forEach(function(lineRow){
@@ -696,6 +721,7 @@
             if (title === 'Add' || title === 'Add Component') col.style.width = '120px';
         });
     }
+
     function captureAndPinService() {
         if (!isOrderPage || pinnedServiceCaptured) return;
         if (document.querySelector('#tech-pinned-service')) return;
@@ -709,6 +735,7 @@
             }
         }
     }
+
     function pinRow(row, grid) {
         var clone = row.cloneNode(true);
         var cb = clone.querySelector('input[type="checkbox"]');
@@ -741,6 +768,7 @@
         grid.parentNode.insertBefore(section, grid);
         pinnedServiceCaptured = true;
     }
+
     function watchServiceGrid() {
         if (!isOrderPage) return;
         preserveServiceGridColWidths();
