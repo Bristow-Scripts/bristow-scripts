@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Expanded / Auto Labor / Time Panel
 // @namespace    http://tampermonkey.net/
-// @version      9.1
+// @version      9.3
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @description  Uses TechShared core for observer management, polling, and DOM helpers.
@@ -1111,9 +1111,33 @@
             });
         }
 
-        setKendoTag(iDoc, iWin, TAG_HOURLY_NAME, 'hourly', function () {
-            setTimeout(doFetch, 400);
-        });
+        // NOTE: previously this called setKendoTag(iDoc, iWin, TAG_HOURLY_NAME, 'hourly', ...)
+        // to re-select the "Hourly" tag combo before fetching. That passed the literal
+        // string 'hourly' into Kendo's widget.value() setter, which expects the combo's
+        // underlying GUID (dataValueField), not display text. No item matched, so the
+        // combo's selection got CLEARED instead of set, and the resulting fetch pulled
+        // back the entire unfiltered service catalog (500+ rows) into the visible grid.
+        //
+        // Script 1 (preloadServiceFilters, in the Time Expanded iframe setup) already
+        // does this correctly: it discovers the real GUID for "Hourly" and hooks
+        // schema.parse to filter every response to Task === hourly. Wait for that setup
+        // to finish (it flags iframe.dataset.brFiltersPreloaded = "1") instead of
+        // duplicating and clobbering it here.
+        var iframeEl = getIframe();
+        var waited = 0;
+        (function waitForFiltersThenFetch() {
+            if (iframeEl && iframeEl.dataset.brFiltersPreloaded === "1") {
+                doFetch();
+                return;
+            }
+            waited += 300;
+            if (waited >= 15000) {
+                warn('Timed out waiting for Time Expanded filters to preload — fetching anyway.');
+                doFetch();
+                return;
+            }
+            setTimeout(waitForFiltersThenFetch, 300);
+        })();
     }
 
     function getServiceIdForTech(techName, techs) {
