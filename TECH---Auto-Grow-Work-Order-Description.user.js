@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Auto Grow Work Order Description
 // @namespace    http://tampermonkey.net/
-// @version      1.8
+// @version      2.0
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Grow-Work-Order-Description.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Grow-Work-Order-Description.user.js
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -11,14 +11,54 @@
 (function () {
     'use strict';
     var MIN_HEIGHT = 233;
-    // Only the WO description textarea gets the forced-size auto-grow treatment
-    // while editing. Fields 10/11 stay their natural size in edit mode — they
-    // only auto-expand once rendered as read-only view spans (see below).
-    var TEXTAREA_IDS = [
-        "AerospaceHead_WorkOrderDesc"
+
+    // Textareas to auto-grow — matched by label text, with hardcoded ID fallback
+    var TEXTAREA_FIELDS = [
+        { labelPatterns: ["Work Order Description"], fallbackId: "AerospaceHead_WorkOrderDesc" }
     ];
-    // Custom field indices that render as read-only <span> in view mode
-    var SPAN_FIELD_INDICES = [10, 11];
+
+    // Read-only spans to style — matched by label text, with hardcoded index fallback
+    var SPAN_FIELDS = [
+        { labelText: "Work Performed", fallbackIndex: 10 },
+        { labelText: "Manufacturer", fallbackIndex: 11 },
+        { labelText: "Pre Data", fallbackIndex: 12 },
+        { labelText: "Post Data", fallbackIndex: 13 }
+    ];
+
+    // ── Label-based discovery ──
+
+    function findTextareaByLabel(labelPatterns) {
+        var labels = document.querySelectorAll("label.control-label");
+        for (var i = 0; i < labels.length; i++) {
+            var text = labels[i].textContent.trim();
+            for (var j = 0; j < labelPatterns.length; j++) {
+                if (text.indexOf(labelPatterns[j]) !== -1) {
+                    var tr = labels[i].closest("tr");
+                    if (tr) {
+                        var ta = tr.querySelector("textarea");
+                        if (ta) return ta;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    function findSpanByLabel(labelText) {
+        var labels = document.querySelectorAll("label.control-label");
+        for (var i = 0; i < labels.length; i++) {
+            if (labels[i].textContent.trim().indexOf(labelText) !== -1) {
+                var td = labels[i].closest("tr");
+                if (td) td = td.querySelector("td");
+                if (!td) continue;
+                var span = td.querySelector("span:not(.field-validation-valid):not(.text-danger)");
+                if (span) return span;
+            }
+        }
+        return null;
+    }
+
+    // ── Core logic ──
 
     function autoGrow(textarea) {
         if (!textarea) return;
@@ -39,17 +79,8 @@
         });
     }
 
-    function attachSpan(idx) {
-        var hiddenLabel = document.getElementById("OrderHead_CustomFields_" + idx + "__Label");
-        if (!hiddenLabel) return;
-        var td = hiddenLabel.closest("td");
-        if (!td) return;
-        var span = td.querySelector("span:not(.field-validation-valid):not(.text-danger)");
+    function attachSpan(span) {
         if (!span) return;
-        // Always (re)apply — cheap, and guards against the site swapping the
-        // span's text content in place (a characterData mutation) without
-        // ever removing/re-adding the node, which would otherwise leave a
-        // stale/unstyled span behind if we only styled it once.
         span.style.display = "block";
         span.style.whiteSpace = "pre";
         span.style.fontFamily = "monospace";
@@ -58,20 +89,37 @@
     }
 
     function init() {
-        TEXTAREA_IDS.forEach(function (id) {
-            attachTextarea(document.getElementById(id));
+        // Textareas — label-based lookup with fallback
+        TEXTAREA_FIELDS.forEach(function (field) {
+            var ta = findTextareaByLabel(field.labelPatterns);
+            if (!ta && field.fallbackId) ta = document.getElementById(field.fallbackId);
+            attachTextarea(ta);
         });
-        SPAN_FIELD_INDICES.forEach(function (idx) {
-            attachSpan(idx);
+
+        // Spans — label-based lookup with fallback
+        SPAN_FIELDS.forEach(function (field) {
+            var span = findSpanByLabel(field.labelText);
+            if (!span && field.fallbackIndex !== undefined) {
+                var hiddenLabel = document.getElementById("OrderHead_CustomFields_" + field.fallbackIndex + "__Label");
+                if (hiddenLabel) {
+                    var td = hiddenLabel.closest("td");
+                    if (td) span = td.querySelector("span:not(.field-validation-valid):not(.text-danger)");
+                }
+            }
+            attachSpan(span);
         });
     }
 
     function anyPresent() {
-        var textareaPresent = TEXTAREA_IDS.some(function (id) {
-            return document.getElementById(id);
+        var textareaPresent = TEXTAREA_FIELDS.some(function (field) {
+            if (findTextareaByLabel(field.labelPatterns)) return true;
+            if (field.fallbackId && document.getElementById(field.fallbackId)) return true;
+            return false;
         });
-        var spanPresent = SPAN_FIELD_INDICES.some(function (idx) {
-            return document.getElementById("OrderHead_CustomFields_" + idx + "__Label");
+        var spanPresent = SPAN_FIELDS.some(function (field) {
+            if (findSpanByLabel(field.labelText)) return true;
+            if (field.fallbackIndex !== undefined && document.getElementById("OrderHead_CustomFields_" + field.fallbackIndex + "__Label")) return true;
+            return false;
         });
         return textareaPresent || spanPresent;
     }
@@ -83,9 +131,6 @@
             init();
         }, { debounce: 200 });
     } else {
-        // characterData: true is the key addition — catches the case where
-        // the site updates a span's text in place after Save without
-        // replacing the element itself.
         var observer = new MutationObserver(function () {
             if (!anyPresent()) return;
             init();
