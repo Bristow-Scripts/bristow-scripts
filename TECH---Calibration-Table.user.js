@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      6.5
+// @version      6.6
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -16,22 +16,60 @@
     // ─── CONFIG ────────────────────────────────────────────────────────────────
     const TABLES = [
         {
+            labelPatterns: ['Pre Data', 'Pre-Test Data', 'Pre Cal'],
             textareaId: 'OrderHead_CustomFields_12__Text',
             label: 'Calibration Data',
             columns: ['TEST POINT', 'UUT', '% ERROR', 'PASS/FAIL'],
             defaultRows: 5,
         },
         {
+            labelPatterns: ['Post Data', 'Post-Test Data', 'Post Cal'],
             textareaId: 'OrderHead_CustomFields_13__Text',
             label: 'Calibration Data (cont.)',
             columns: ['TEST POINT', 'UUT', '% ERROR', 'PASS/FAIL'],
             defaultRows: 5,
-            linkedFrom: 'OrderHead_CustomFields_12__Text',
+            linkedFrom: 0,
         },
     ];
 
     const MAX_COLS = 8; // 4 columns per gauge (Gauge/UUT/% ERROR/PASS/FAIL), up to 2 gauges
     // ───────────────────────────────────────────────────────────────────────────
+
+    // ── Label-based field discovery ──
+    // Scans for <label> elements whose text matches any of the given patterns,
+    // then finds the <textarea> in the same <tr>. Falls back to the hardcoded
+    // textareaId if no label match is found.
+    function resolveTextareaId(config) {
+        if (!config.labelPatterns || !config.labelPatterns.length) return config.textareaId;
+        var labels = document.querySelectorAll('label.control-label');
+        for (var i = 0; i < labels.length; i++) {
+            var labelText = labels[i].textContent.trim();
+            for (var j = 0; j < config.labelPatterns.length; j++) {
+                if (labelText.indexOf(config.labelPatterns[j]) !== -1) {
+                    var tr = labels[i].closest('tr');
+                    if (tr) {
+                        var ta = tr.querySelector('textarea');
+                        if (ta) return ta.id;
+                    }
+                }
+            }
+        }
+        return config.textareaId;
+    }
+
+    // Resolve linkedFrom (index or textareaId) to a groupId
+    function resolveGroupId(config) {
+        if (typeof config.linkedFrom === 'number') {
+            return resolveTextareaId(TABLES[config.linkedFrom]);
+        }
+        if (typeof config.linkedFrom === 'string') {
+            // Could be a textareaId or labelPatterns ref
+            var linked = TABLES.find(function(t) { return resolveTextareaId(t) === config.linkedFrom; });
+            if (linked) return resolveTextareaId(linked);
+            return config.linkedFrom;
+        }
+        return resolveTextareaId(config);
+    }
 
     const _style = document.createElement('style');
     _style.textContent = `
@@ -549,13 +587,14 @@
 
     // ── Build one table widget ────────────────────────────────────────────────
     function buildWidget(config) {
-        const ta = document.getElementById(config.textareaId);
+        const resolvedId = resolveTextareaId(config);
+        const ta = document.getElementById(resolvedId);
         if (!ta || ta.tagName !== 'TEXTAREA') return false;
-        if (_built.has(config.textareaId)) return true;
-        if (ta.previousElementSibling && ta.previousElementSibling.classList.contains('cal-wrapper')) { _built.add(config.textareaId); return true; }
+        if (_built.has(resolvedId)) return true;
+        if (ta.previousElementSibling && ta.previousElementSibling.classList.contains('cal-wrapper')) { _built.add(resolvedId); return true; }
 
-        const groupId = config.linkedFrom || config.textareaId;
-        const isSlave = !!config.linkedFrom;
+        const groupId = resolveGroupId(config);
+        const isSlave = !!config.linkedFrom && config.linkedFrom !== 0;
         const existing = deserialize(ta.value);
 
         let group = LINK_GROUPS[groupId];
@@ -581,7 +620,7 @@
                 viewMode = cardMode ? 'card' : 'sheet';
             }
             // Try localStorage first, then textarea, then default
-            const savedSpecs = loadGaugeSpecs(config.textareaId);
+            const savedSpecs = loadGaugeSpecs(resolvedId);
             let gaugeSpecs;
             if (savedSpecs && savedSpecs.length) {
                 gaugeSpecs = savedSpecs;
@@ -713,7 +752,7 @@
             const activeLabels = group.viewMode === 'sheet' ? sheetCols.map((c, ci) => c || colLetter(ci)) : cardDisplayLabels();
             const specsForSave = group.viewMode === 'sheet' ? null : gaugeSpecs;
             ta.value = hasAnyData() ? serialize(resolved, activeLabels, null, null, null, null, specsForSave) : '';
-            saveGaugeSpecs(config.textareaId, gaugeSpecs);
+            saveGaugeSpecs(resolvedId, gaugeSpecs);
             persistLayout();
             ta.dispatchEvent(new Event('change', { bubbles: true }));
             ta.dispatchEvent(new Event('input',  { bubbles: true }));
@@ -1542,7 +1581,7 @@
         };
         ta._widget = widget;
         group.widgets.push(widget);
-        _built.add(config.textareaId);
+        _built.add(resolvedId);
 
         render(); sync();
         return true;
@@ -1720,22 +1759,24 @@
     tryBuildAll();
 
     function tryBuildAll() {
-        const allFound = TABLES.every(config => document.getElementById(config.textareaId));
+        const allFound = TABLES.every(config => document.getElementById(resolveTextareaId(config)));
         if (!allFound) return;
         TABLES.forEach(config => {
-            const ta = document.getElementById(config.textareaId);
-            const groupId = config.linkedFrom || config.textareaId;
+            const resolvedId = resolveTextareaId(config);
+            const ta = document.getElementById(resolvedId);
+            const groupId = resolveGroupId(config);
             const grp = LINK_GROUPS[groupId];
             if (grp) {
                 // Remove stale widgets whose wrapper is no longer in the DOM
                 grp.widgets = grp.widgets.filter(w => {
-                    const wta = document.getElementById(w._config.textareaId);
+                    const wResolvedId = resolveTextareaId(w._config);
+                    const wta = document.getElementById(wResolvedId);
                     return wta && wta.previousElementSibling && wta.previousElementSibling.classList.contains('cal-wrapper');
                 });
             }
             // If wrapper was removed (page save/DOM update), allow rebuild
             if (ta && !ta.previousElementSibling?.classList.contains('cal-wrapper')) {
-                _built.delete(config.textareaId);
+                _built.delete(resolvedId);
             }
             buildWidget(config);
         });
