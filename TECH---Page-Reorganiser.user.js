@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      6.0
+// @version      6.3
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -37,27 +37,149 @@
         '#collapseInvoices','#collapseReturns','#collapseExpenses',
     ];
     const HIDDEN_FIELD_ROW_SELECTORS = [
-        '#OrderHead_CustomFields_3__Date','#OrderHead_CustomFields_4__Date','#OrderHead_CustomFields_5__Date',
-        '#OrderHead_CustomFields_6__Text',
-        '#OrderHead_CustomFields_16__Label','#OrderHead_CustomFields_16__Text',
         '#AerospaceHead_CostCenter','#AerospaceHead_EASA',
         '#AerospaceHead_ShippedBy','#OrderHead_CustomerContactId','#OrderHead_TermsAndConditions',
         '#OrderHead_ShippingInstructions',
     ];
     const FROZEN_FIELDS = [
-        { pickerId:'OrderHead_CustomerId' },{ pickerId:'OrderHead_SelectedOrderTaxes', isMulti:true },
-        { pickerId:'OrderHead_Project', isPlainInput:true },{ pickerId:'OrderHead_CustomFields_1__OptionId' },
-        { pickerId:'OrderHead_CustomFields_2__OptionId' },
-        { pickerId:'OrderHead_CustomFields_11__Text', isPlainInput:true },
-        { pickerId:'AerospaceHead_AircraftTailNumber', isPlainInput:true },
-        { pickerId:'AerospaceHead_SerialNumber', isPlainInput:true },
-        { pickerId:'AerospaceHead_ControlledGood', isCheckbox:true },
-        { pickerId:'AerospaceHead_IsWarranty', isCheckbox:true },
+        { pickerId:'OrderHead_CustomerId', labelText:'Company' },
+        { pickerId:'OrderHead_SelectedOrderTaxes', isMulti:true, labelText:'Order Taxes' },
+        { pickerId:'OrderHead_Project', isPlainInput:true, labelText:'Project' },
+        { pickerId:'OrderHead_CustomFields_1__OptionId', labelText:'Approval Status' },
+        { pickerId:'OrderHead_CustomFields_2__OptionId', labelText:'Priority' },
+        { pickerId:'OrderHead_CustomFields_11__Text', isPlainInput:true, labelText:'Manufacturer' },
+        { pickerId:'AerospaceHead_AircraftTailNumber', isPlainInput:true, labelText:'Aircraft Tail Number' },
+        { pickerId:'AerospaceHead_SerialNumber', isPlainInput:true, labelText:'Serial Number' },
+        { pickerId:'AerospaceHead_ControlledGood', isCheckbox:true, labelText:'Controlled Good' },
+        { pickerId:'AerospaceHead_IsWarranty', isCheckbox:true, labelText:'Is Warranty' },
     ];
     const FREEZE_CLASS = 'tech-frozen-overlay';
     const INLINE_NOTE_CLASS = 'tech-inline-note-row';
     const PINNED_SERVICE_NUM = 'S-100217';
     const JOBS_HIDE_CLASS = 'tech-jobs-hidden';
+
+    // ── Label-based field discovery ──
+    // Finds a container (div or tr) whose label text includes the given string.
+    // Optionally disambiguates by an input ID prefix (e.g. 'CustomFields_5__').
+    function findFieldDiv(labelText, inputIdPrefix) {
+        var container = document.getElementById('collapseAdditional') || document;
+        var labels = container.querySelectorAll('label.control-label');
+        for (var i = 0; i < labels.length; i++) {
+            if (labels[i].textContent.trim().indexOf(labelText) !== -1) {
+                var div = labels[i].closest('div[class*="col-md"]') || labels[i].closest('div') || labels[i].closest('tr');
+                if (!div) continue;
+                if (inputIdPrefix) {
+                    if (!div.querySelector('[id*="' + inputIdPrefix + '"]')) continue;
+                }
+                return div;
+            }
+        }
+        return null;
+    }
+
+    // Finds a freeze target (picker, input, or checkbox) by label text.
+    // Searches for a <label> containing labelText, then finds the associated
+    // element in the same row. Returns { el, target } or null.
+    function findPickerByLabel(labelText, field) {
+        var labels = document.querySelectorAll('label.control-label');
+        for (var i = 0; i < labels.length; i++) {
+            if (labels[i].textContent.trim().indexOf(labelText) === -1) continue;
+            var row = labels[i].closest('tr');
+            if (!row) continue;
+            if (field.isCheckbox) {
+                var cb = row.querySelector('input[type="checkbox"]');
+                if (cb) return { el: cb, target: cb };
+            } else if (field.isPlainInput) {
+                var inp = row.querySelector('input.form-control, textarea');
+                if (inp) return { el: inp, target: inp };
+            } else {
+                var pk = row.querySelector('.k-picker, .k-multiselect');
+                if (pk) {
+                    var input = pk.querySelector('input[data-role]');
+                    return { el: input || pk, target: pk };
+                }
+            }
+        }
+        return null;
+    }
+
+    // Field rules: what to do with each field in the Additional Info section.
+    // Key = partial label text to match. Actions:
+    //   hidden: true         — hide the entire div
+    //   fullWidth: true      — span full width (grid-column: 1 / -1)
+    //   order: N             — CSS grid order
+    //   gridCol: N           — CSS grid-column assignment
+    //   gridRow: N           — CSS grid-row assignment
+    var ADDITIONAL_FIELD_RULES = [
+        { match: 'Way Bill Number',   hidden: true },
+        { match: 'Calibration Date',  hidden: true },
+        { match: 'Due Date',          hidden: true, inputId: 'CustomFields_4__' },
+        { match: 'Due Date',          hidden: true, inputId: 'CustomFields_5__' },
+        { match: 'Courier Name',      hidden: true },
+        { match: 'CDN Heli Cal',      hidden: true },
+        { match: 'Manual #',          hidden: true },
+        { match: 'Manual Rev',        hidden: true },
+        { match: 'CCV%',              hidden: true },
+        { match: 'Inspection Date',   hidden: true },
+        { match: 'Bristow Status',    gridRow: 1, gridCol: 1 },
+        { match: 'Approval Status',   gridRow: 1, gridCol: 2 },
+        { match: 'Priority',          gridRow: 1, gridCol: 3 },
+        { match: 'Work Performed',    gridRow: 2, gridCol: 1 },
+        { match: 'Status/Work Level', gridRow: 2, gridCol: 2 },
+        { match: 'Manufacturer',      gridRow: 2, gridCol: 3 },
+        { match: 'Temperature',       gridRow: 3, gridCol: '1 / 3' },
+        { match: 'Pre Data',          fullWidth: true, order: 9 },
+        { match: 'Post Data',         fullWidth: true, order: 10 },
+        { match: 'Special Release Remarks', fullWidth: true, order: 11 },
+    ];
+
+    // Apply Additional Info layout rules via DOM (not CSS selectors)
+    function rebuildAdditionalLayout() {
+        if (!techMode || !isOrderPage) return;
+        var container = document.getElementById('collapseAdditional');
+        if (!container) return;
+        ADDITIONAL_FIELD_RULES.forEach(function(rule) {
+            var div = findFieldDiv(rule.match, rule.inputId);
+            if (!div) return;
+            if (rule.hidden) {
+                div.style.setProperty('display', 'none', 'important');
+            } else {
+                div.style.removeProperty('display');
+            }
+            if (rule.fullWidth) {
+                div.style.setProperty('grid-column', '1 / -1', 'important');
+            } else if (rule.gridCol) {
+                div.style.setProperty('grid-column', String(rule.gridCol), 'important');
+            }
+            if (rule.gridRow) {
+                div.style.setProperty('grid-row', String(rule.gridRow), 'important');
+            }
+            if (rule.order) {
+                div.style.setProperty('order', String(rule.order), 'important');
+            }
+        });
+        // Hide the Report links div (first child with Optional_Report link)
+        var reportLink = container.querySelector('a[href*="ReportName=Optional_Report"]');
+        if (reportLink) {
+            var reportDiv = reportLink.closest('div');
+            if (reportDiv) reportDiv.style.setProperty('order', '1', 'important');
+        }
+    }
+
+    // Undo the Additional Info layout when tech mode is off
+    function restoreAdditionalLayout() {
+        var container = document.getElementById('collapseAdditional');
+        if (!container) return;
+        container.querySelectorAll('label.control-label').forEach(function(label) {
+            var div = label.closest('div[class*="col-md"]') || label.closest('div') || label.closest('tr');
+            if (div) {
+                div.style.removeProperty('display');
+                div.style.removeProperty('grid-column');
+                div.style.removeProperty('grid-row');
+                div.style.removeProperty('order');
+            }
+        });
+    }
     const HIDE_BUTTONS_CLASS = 'tech-buttons-hidden';
 
     let pinnedServiceCaptured = false;
@@ -124,32 +246,13 @@
             css.push('.col-md-2:has(#ServiceCategorySearch),.col-md-2:has(#ServiceNumberSearch),.col-md-2:has(#ServiceAltServiceNumberSearch) { display: none !important; }');
             css.push('button.btn-danger[title="Hide All"],button.btn-warning[title="Hide"] { display: none !important; }');
 
-            // Additional Info section — grid layout
+            // Additional Info section — grid layout (structural only, field targeting via DOM)
             css.push('#collapseAdditional.collapse.in { display: grid !important; grid-template-columns: repeat(3, 1fr); column-gap: 20px; row-gap: 10px; align-items: start; }');
             css.push('#collapseAdditional.collapse.in > [class*="col-md-"] { width: auto !important; max-width: none !important; flex: none !important; margin-bottom: 0; }');
             css.push('#collapseAdditional .table.lq-table-info { margin-bottom: 0; }');
             css.push('#collapseAdditional .k-datepicker { width: 100% !important; }');
+            css.push('#collapseAdditional input.form-control { max-width: 250px; }');
             css.push('#collapseAdditional > br { display: none; }');
-            css.push('#collapseAdditional > div:has(a[href*="ReportName=Optional_Report"]) { grid-column: 1 / -1; order: 1; }');
-
-            // Hide fields that are no longer needed
-            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_16__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_7__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_8__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_15__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_18__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_3__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_4__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_5__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_6__Label) { display: none !important; }');
-
-            // Full-width fields below the grid
-            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_12__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_13__Label),#collapseAdditional > div:has(#OrderHead_CustomFields_14__Label) { grid-column: 1 / -1; }');
-            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_12__Label) { order: 9; }');
-            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_13__Label) { order: 10; }');
-            css.push('#collapseAdditional > div:has(#OrderHead_CustomFields_14__Label) { order: 11; }');
-
-            // Grid field ordering
-            var fieldOrder = [
-                ['OrderHead_CustomFields_0__Label',2,1], ['OrderHead_CustomFields_1__Label',3,2], ['OrderHead_CustomFields_2__Label',4,3],
-                ['OrderHead_CustomFields_10__Label',5,1], ['OrderHead_CustomFields_9__Label',6,2], ['OrderHead_CustomFields_11__Label',7,3],
-                ['OrderHead_CustomFields_17__Label',8,1]
-            ];
-            fieldOrder.forEach(function(f) {
-                css.push('#collapseAdditional > div:has(#' + f[0] + ') { order: ' + f[1] + '; grid-column: ' + f[2] + '; }');
-            });
         }
         staticCSS = css.join('\n');
         return staticCSS;
@@ -181,8 +284,8 @@
     //  Field freeze / unfreeze (only on techMode toggle, not every mutation)
     // ═════════════════════════════════════════════════════════════════════════
 
-    function getPickerText(field) {
-        var el = document.getElementById(field.pickerId);
+    function getPickerText(field, el) {
+        if (!el) el = document.getElementById(field.pickerId);
         if (!el) return null;
         if (field.isCheckbox) return el.checked ? 'Yes' : 'No';
         if (field.isPlainInput) return el.value.trim() || '\u2014';
@@ -201,11 +304,24 @@
     function freezeFields() {
         if (!techMode) return;
         FROZEN_FIELDS.forEach(function(field) {
-            var input = document.getElementById(field.pickerId);
-            if (!input) return;
-            var target = (field.isPlainInput || field.isCheckbox) ? input : input.closest('.k-picker, .k-multiselect');
+            var input, target, text;
+            // Try label-based lookup first
+            if (field.labelText) {
+                var found = findPickerByLabel(field.labelText, field);
+                if (found) {
+                    input = found.el;
+                    target = found.target;
+                    text = getPickerText(field, input);
+                }
+            }
+            // Fall back to ID-based lookup
+            if (!input) {
+                input = document.getElementById(field.pickerId);
+                if (!input) return;
+                target = (field.isPlainInput || field.isCheckbox) ? input : input.closest('.k-picker, .k-multiselect');
+                text = getPickerText(field, input);
+            }
             if (!target || target.dataset.techFrozen) return;
-            var text = getPickerText(field);
             if (text === null) return;
             target.dataset.techFrozen = 'true';
             target.style.display = 'none';
@@ -278,6 +394,7 @@
                 hideBtns();
                 freezeFields();
                 renameCompleteOrderByHeader();
+                rebuildAdditionalLayout();
                 setTimeout(function(){ fixJumpLinks(); moveSerialNumberRow(); moveInspectionButton(); }, 100);
             } else {
                 restoreButtonsById();
@@ -289,6 +406,7 @@
                 restoreSerialNumberRow();
                 restoreOrderLineHeaders();
                 restoreShelfFilter();
+                restoreAdditionalLayout();
             }
         } catch(e) { console.warn('[TechMode] toggle error:', e); }
     }
@@ -814,6 +932,7 @@
             hideJobsContent(); freezeFields(); renameCompleteOrderByHeader();
             fixJumpLinks(); moveSerialNumberRow(); moveInspectionButton();
             hideBtns(); hideOrderLineHeaders();
+            rebuildAdditionalLayout();
         }
         addInlineNotesToAllLines();
         if (!pinnedServiceCaptured) { captureAndPinService(); }
@@ -921,6 +1040,18 @@
         addInlineNotesToAllLines();
         hideBtns();
         hideOrderLineHeaders();
-        if (techMode) { freezeFields(); renameCompleteOrderByHeader(); fixJumpLinks(); moveSerialNumberRow(); }
+        if (techMode) { freezeFields(); renameCompleteOrderByHeader(); fixJumpLinks(); moveSerialNumberRow(); rebuildAdditionalLayout(); }
     }, 500);
+
+    // Watch Additional Info section for DOM changes (admin re-arranging fields)
+    setTimeout(function(){
+        var addlContainer = document.getElementById('collapseAdditional');
+        if (addlContainer && !addlContainer.dataset.techObserverAttached) {
+            addlContainer.dataset.techObserverAttached = '1';
+            var addlObserver = new MutationObserver(function(){
+                if (techMode) rebuildAdditionalLayout();
+            });
+            addlObserver.observe(addlContainer, { childList: true, subtree: true });
+        }
+    }, 1000);
 })();
