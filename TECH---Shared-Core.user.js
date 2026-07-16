@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Shared Core
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Shared utilities for all TECH scripts — observer manager, polling, DOM helpers, iframe access
 // @match        https://bristow-app.azurewebsites.net/*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Shared-Core.user.js
@@ -18,7 +18,7 @@
     // ═════════════════════════════════════════════════════════════════════════
 
     var TS = {
-        version: '1.0',
+        version: '1.1',
         ready: false,
         _isPaused: false,
     };
@@ -104,28 +104,30 @@
         var _active = {};
         var _intervalMs = 200;
         var _timer = null;
+        var _nextId = 1;
 
         function _tick() {
             var keys = Object.keys(_active);
             for (var i = 0; i < keys.length; i++) {
-                var p = _active[keys[i]];
+                var key = keys[i];
+                var p = _active[key];
                 if (!p) continue;
                 try {
                     var result = p.fn();
                     if (result) {
                         p.cb(result);
-                        delete _active[keys[i]];
+                        delete _active[key];
                         continue;
                     }
                 } catch (e) {
-                    TS.log('Poll error (' + keys[i] + '): ' + e.message, 'warn');
-                    delete _active[keys[i]];
+                    TS.log('Poll error (' + p.label + '): ' + e.message, 'warn');
+                    delete _active[key];
                     continue;
                 }
                 p.elapsed += _intervalMs;
                 if (p.elapsed >= p.timeout) {
-                    TS.log('Timed out: ' + keys[i], 'warn');
-                    delete _active[keys[i]];
+                    TS.log('Timed out: ' + p.label, 'warn');
+                    delete _active[key];
                 }
             }
             if (Object.keys(_active).length === 0 && _timer) {
@@ -141,7 +143,16 @@
 
         return function (label, condFn, onFound, timeoutMs, intervalMs) {
             timeoutMs = timeoutMs || 15000;
-            _active[label] = {
+            // NOTE: previously this used `label` directly as the _active key. Since
+            // TS.iframe.waitForReady() (and other shared helpers) always poll under the
+            // same hardcoded label, two concurrent callers with the same label would
+            // silently overwrite each other here — the second caller's callback would
+            // survive and the first's would be orphaned forever, no error. Give every
+            // registration its own unique key (same pattern as TS.observer.register's
+            // 'obs_' + id), and keep the caller's label only for logging.
+            var key = label + '_' + (_nextId++);
+            _active[key] = {
+                label: label,
                 fn: condFn,
                 cb: onFound,
                 timeout: timeoutMs,
@@ -149,7 +160,7 @@
             };
             _ensureTimer();
             return function () {
-                delete _active[label];
+                delete _active[key];
             };
         };
     })();
@@ -343,7 +354,7 @@
         if (TS.ready) return;
         TS.ready = true;
         _setupTypingDetection();
-        TS.log('Shared Core v1.0 loaded');
+        TS.log('Shared Core v1.1 loaded');
     }
 
     if (document.readyState === 'loading') {
