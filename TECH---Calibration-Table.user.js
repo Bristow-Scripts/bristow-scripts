@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      6.6
+// @version      6.8
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -594,7 +594,7 @@
         if (ta.previousElementSibling && ta.previousElementSibling.classList.contains('cal-wrapper')) { _built.add(resolvedId); return true; }
 
         const groupId = resolveGroupId(config);
-        const isSlave = !!config.linkedFrom && config.linkedFrom !== 0;
+        const isSlave = config.linkedFrom !== undefined && config.linkedFrom !== null;
         const existing = deserialize(ta.value);
 
         let group = LINK_GROUPS[groupId];
