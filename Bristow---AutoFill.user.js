@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bristow - Auto-Fill
 // @namespace    http://tampermonkey.net/
-// @version      6.5
+// @version      6.6
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---Auto-Fill.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---AutoFill.user.js
 // @description  Type /wip to fully automate starting a work order: status, docs, text, parts, tools, save.
@@ -598,8 +598,13 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
   // STEP 9 — Save order header
   // ═══════════════════════════════════════════════════════
   async function saveOrderHeader() {
-    const saveBtn = [...document.querySelectorAll('button.btn-success')]
+    // Try saveOrderHeader first (header save), then saveLines (line save)
+    let saveBtn = [...document.querySelectorAll('button.btn-success')]
       .find(b => (b.getAttribute('onclick') || '').includes('saveOrderHeader'));
+    if (!saveBtn) {
+      saveBtn = [...document.querySelectorAll('button.btn-success')]
+        .find(b => (b.getAttribute('onclick') || '').includes('saveLines'));
+    }
     if (saveBtn) { saveBtn.click(); await sleep(800); }
     return true;
   }
@@ -1218,7 +1223,7 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
 
       // Set Work Performed dropdown
       if (workPerformedValue) {
-        const wpInput = findDropdownByLabel(['Work Performed'], 'OrderHead_CustomFields_8__OptionId');
+        const wpInput = findDropdownByLabel(['Work Performed'], 'OrderHead_CustomFields_10__OptionId');
         if (wpInput) {
           const wpWidget = typeof jQuery !== 'undefined'
             ? jQuery('#' + CSS.escape(wpInput.id)).data('kendoDropDownList') : null;
@@ -1234,7 +1239,7 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
 
       // Set Status/Work Level to "WIC"
       showProgress('Step 4/5: Setting Work Level to WIC...');
-      const workLevelEl = findByLabel(['Status/Work Level'], 'OrderHead_CustomFields_7__Text');
+      const workLevelEl = findByLabel(['Status/Work Level'], 'OrderHead_CustomFields_9__Text');
       if (workLevelEl) setNativeValue(workLevelEl, 'WIC');
       await sleep(300);
 
@@ -1338,3 +1343,4 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
     : init();
 
 })();
+
