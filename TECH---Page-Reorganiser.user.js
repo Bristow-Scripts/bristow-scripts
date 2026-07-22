@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      6.3
+// @version      6.5
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -224,6 +224,7 @@
                 css.push(s + ' { display: none !important; }');
                 css.push('.well.well-sm:has(.accordion-toggle[data-target="' + s + '"]) { display: none !important; }');
             });
+            css.push('#ProgressArea { display: none !important; }');
             css.push('a.btn-info[href*="Optional_Report7"]:not([data-tech-inspected]) { display: none !important; }');
             HIDDEN_FIELD_ROW_SELECTORS.forEach(function(s){ css.push('tr:has(' + s + ') { display: none !important; }'); });
             css.push('tr:has(label[for="OrderHead_TermsAndConditions"]),tr:has(label[for="OrderHead_ShippingInstructions"]) { display: none !important; }');
@@ -687,10 +688,15 @@
     function repositionNoteRow(lineId) {
         var noteRow = document.querySelector('.' + INLINE_NOTE_CLASS + '[data-line-id="' + lineId + '"]');
         if (!noteRow) return;
-        var sa = document.getElementById('OrderLineSourceArea_' + lineId);
-        if (sa && sa.parentNode === noteRow.parentNode && (sa.compareDocumentPosition(noteRow) & Node.DOCUMENT_POSITION_FOLLOWING)) {
-            sa.parentNode.insertBefore(noteRow, sa);
-        }
+        var lineRow = document.getElementById('OrderLine_' + lineId);
+        if (!lineRow) return;
+        var tds = lineRow.querySelectorAll(':scope > td');
+        if (tds.length < 2) return;
+        var targetTd = tds[1];
+        var container = targetTd.querySelector('.lq-flex-data-container');
+        if (!container) return;
+        if (noteRow.parentNode === targetTd && noteRow.previousElementSibling === container) return;
+        targetTd.insertBefore(noteRow, container.nextSibling);
     }
 
     function updateDisplayedNote(lineId, text) {
@@ -816,7 +822,7 @@
             var existing = document.querySelector('.' + INLINE_NOTE_CLASS + '[data-line-id="' + lineId + '"]');
             if (existing) {
                 if (existing.dataset.placement !== 'source-area') { existing.remove(); delete lineRow.dataset.techNoteAdded; }
-                else { lineRow.dataset.techNoteAdded = 'true'; return; }
+                else { lineRow.dataset.techNoteAdded = 'true'; repositionNoteRow(lineId); return; }
             }
             if (!lineId || lineRow.dataset.techNoteAdded) return;
             addInlineNoteRow(lineRow);
