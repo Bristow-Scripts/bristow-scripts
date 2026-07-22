@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Expanded / Auto Labor / Time Panel
 // @namespace    http://tampermonkey.net/
-// @version      9.3
+// @version      9.5
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @description  Uses TechShared core for observer management, polling, and DOM helpers.
@@ -512,6 +512,20 @@
             if (completeBtn) completeBtn.remove();
 
             doc.querySelectorAll('a[href*="/Orders/Jobs/PerformServices"]').forEach(function (el) {
+                el.remove();
+            });
+
+            var progressArea = doc.getElementById("ProgressArea");
+            if (progressArea) {
+                var progressSection = progressArea.closest(".row.content-group") || progressArea.closest(".row") || progressArea;
+                progressSection.remove();
+            }
+
+            doc.querySelectorAll('a.btn.btn-warning[href*="/Orders/Orders/Edit"]').forEach(function (el) {
+                el.remove();
+            });
+
+            doc.querySelectorAll('a.btn[href*="/Orders/Receiving/PerformServices"]').forEach(function (el) {
                 el.remove();
             });
 
@@ -1250,18 +1264,22 @@
         var total = Math.round(subs.reduce(function (s, x) { return s + x.value; }, 0) * 100) / 100;
         var main  = iDoc.getElementById('OrderLineQuantity_' + lineId);
         if (!main) return;
+
+        var origOnChange = main.onchange;
+        main.onchange = null;
+
         main.value = total;
-        main.focus();
-        var oc = main.getAttribute('onchange');
-        if (oc && typeof iWin.setLineQuantity === 'function') {
+        main.dispatchEvent(new Event('input', { bubbles: true }));
+
+        setTimeout(function () {
+            main.onchange = origOnChange;
             try {
-                var m = oc.match(/setLineQuantity\('[^']+',\s*([\d.]+),/);
-                iWin.setLineQuantity(lineId, m ? parseFloat(m[1]) : 1, main);
-            } catch (e) {}
-        }
-        main.dispatchEvent(new Event('change', { bubbles: true }));
-        main.dispatchEvent(new Event('input',  { bubbles: true }));
-        main.blur();
+                main.dispatchEvent(new Event('change', { bubbles: true }));
+            } catch (e) {
+                log('Suppressed validation noise: ' + e.message);
+            }
+            main.blur();
+        }, 50);
     }
 
     function clickSaveInIframe() {
