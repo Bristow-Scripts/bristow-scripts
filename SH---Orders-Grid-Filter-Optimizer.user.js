@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         SH - Orders Grid Filter Optimizer
 // @namespace    http://tampermonkey.net/
-// @version      4.4
+// @version      7.0
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
-// @description  Preloads ALL orders into IndexedDB, switches grid to client-side filtering for instant results. Defaults Show Complete & Cancelled to ON. Replaces SH - Show Complete and Cancelled - Default ON.
+// @description  WIP, Print, Clear buttons. Defaults filters to contains.
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders
 // @grant        none
 // ==/UserScript==
@@ -12,502 +12,184 @@
 (function () {
     'use strict';
 
-    var DB_NAME    = 'BristowOrdersCache';
-    var DB_VERSION = 1;
-    var STORE_NAME = 'orders';
-    var CACHE_KEY  = 'allOrders';
-    var MAX_AGE_MS = 5 * 60 * 1000;
+    var wipActive = false;
+    var wipApplying = false;
+    var injected = false;
 
-    // =========================================================================
-    // STATUS
-    // =========================================================================
+    var BTN = 'padding:5px 14px;border:none;border-radius:5px;font-size:13px;font-family:system-ui,sans-serif;font-weight:600;cursor:pointer;';
 
-    function showStatus(msg, color) {
-        var el = document.getElementById('ofg-status');
-        if (!el) return;
-        el.textContent = msg; el.style.background = color || '#555'; el.style.opacity = '1';
-    }
-    function hideStatus(ms) {
-        setTimeout(function () {
-            var el = document.getElementById('ofg-status');
-            if (el) el.style.opacity = '0';
-        }, ms || 2000);
-    }
+    function grid() { return $('#grid').data('kendoGrid'); }
+    function searchGrid() { try { grid().dataSource.read(); } catch (e) {} }
 
-    // =========================================================================
-    // INDEXEDDB
-    // =========================================================================
-
-    function openDB(cb) {
-        var req = indexedDB.open(DB_NAME, DB_VERSION);
-        req.onupgradeneeded = function (e) { e.target.result.createObjectStore(STORE_NAME); };
-        req.onsuccess = function (e) { cb(null, e.target.result); };
-        req.onerror   = function (e) { cb(e.target.error, null); };
-    }
-    function dbGet(key, cb) {
-        openDB(function (err, db) {
-            if (err) return cb(err, null);
-            var req = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(key);
-            req.onsuccess = function (e) { cb(null, e.target.result); };
-            req.onerror   = function (e) { cb(e.target.error, null); };
+    function clearFilters() {
+        wipActive = false;
+        var wb = document.getElementById('ofg-wip-btn');
+        if (wb) wb.style.background = '#8e44ad';
+        ['OrderRepSearch','OrderNumberSearch','ProjectSearch','CompanySearch','ContactSearch'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.value = '';
         });
+        try { $('#officeSelect').data('kendoMultiSelect').value([]); } catch (e) {}
+        try { grid().dataSource.filter([]); } catch (e) {}
     }
-    function dbSet(key, val, cb) {
-        openDB(function (err, db) {
-            if (err) return cb && cb(err);
-            var req = db.transaction(STORE_NAME, 'readwrite').objectStore(STORE_NAME).put(val, key);
-            req.onsuccess = function () { cb && cb(null); };
-            req.onerror   = function (e) { cb && cb(e.target.error); };
+
+    function wipFilter() {
+        ['OrderRepSearch','OrderNumberSearch','ProjectSearch','CompanySearch','ContactSearch'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.value = '';
         });
-    }
-
-    // =========================================================================
-    // FETCH ALL ORDERS FROM SERVER
-    // =========================================================================
-
-    function fetchAllOrders(cb) {
-        var token = (document.querySelector('input[name="__RequestVerificationToken"]') || {}).value || '';
-        var body = [
-            'sort=', 'page=1', 'pageSize=999999', 'group=', 'filter=',
-            '__RequestVerificationToken=' + encodeURIComponent(token),
-            'wCompleted=true'
-        ].join('&');
-
-        fetch('/Orders/Orders?handler=Orders', {
-            method: 'POST', credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
-            body: body
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (data) { cb(null, data && data.Data ? data.Data : []); })
-        .catch(function (e) { cb(e, null); });
-    }
-
-    // =========================================================================
-    // INJECT — destroy and recreate grid in client-side mode with cached data
-    // =========================================================================
-
-    function injectIntoGrid(records) {
-        var $grid = $('#grid');
-        var grid  = $grid.data('kendoGrid');
-        if (!grid) return;
-
-        var savedFilter = grid.dataSource.filter() ? JSON.parse(JSON.stringify(grid.dataSource.filter())) : null;
-        var savedSort   = grid.dataSource.sort()   ? JSON.parse(JSON.stringify(grid.dataSource.sort()))   : null;
-        var savedPage   = grid.dataSource.page()   || 1;
-
-        var columns  = grid.options.columns;
-        var pageable = grid.options.pageable;
-        var sortable = grid.options.sortable;
-
-        grid.destroy();
-        $grid.empty();
-
-        $grid.kendoGrid({
-            dataSource: {
-                data:     records,
-                pageSize: 25,
-                schema: {
-                    model: {
-                        fields: {
-                            CreatedAt:      { type: 'date' },
-                            ControlledGood: { type: 'boolean' },
-                            OrderTotal:     { type: 'number' }
-                        }
-                    }
-                }
-            },
-            columns:    columns,
-            pageable:   { pageSizes: [5, 10, 25, 50, 100], buttonCount: 3 },
-            sortable:   sortable,
-            filterable: { extra: false, operators: { string: { contains: "Contains", eq: "Is equal to", startswith: "Starts with", doesnotcontain: "Does not contain" }, number: { eq: "Is equal to", gte: "Is greater than or equal to", lte: "Is less than or equal to" }, date: { eq: "Is equal to", gte: "Is after or equal to", lte: "Is before or equal to" }, enums: { eq: "Is equal to" } } },
-            scrollable: false,
-            noRecords:  { template: "<div style='padding:10px;'>No records found.</div>" }
-        });
-
-        var newGrid = $grid.data('kendoGrid');
-        if (newGrid) {
-            if (savedSort)   newGrid.dataSource.sort(savedSort);
-            if (savedFilter) newGrid.dataSource.filter(savedFilter);
-            if (savedPage)   newGrid.dataSource.page(savedPage);
-        }
-
-        console.log('[OrdersCache] Grid recreated client-side with ' + records.length + ' orders.');
-    }
-
-    // =========================================================================
-    // SHOW COMPLETE & CANCELLED — client-side filter
-    // =========================================================================
-
-    function applyCompletedFilter() {
+        try {
+            var ms = $('#officeSelect').data('kendoMultiSelect');
+            if (ms) {
+                var yeg = null;
+                ms.dataSource.data().forEach(function (item) {
+                    if (item.Text && item.Text.indexOf('YEG') !== -1) yeg = item.Value;
+                });
+                if (yeg) ms.value([yeg]);
+            }
+        } catch (e) {}
         try {
             var sw = $('#wCompleted').data('kendoSwitch');
-            var grid = $('#grid').data('kendoGrid');
-            if (!sw || !grid) return;
+            if (sw && sw.check()) sw.check(false);
+        } catch (e) {}
+        wipActive = true;
+        var wb = document.getElementById('ofg-wip-btn');
+        if (wb) wb.style.background = '#6c3483';
+        searchGrid();
+    }
 
-            var ds = grid.dataSource;
-            var current = ds.filter() ? ds.filter().filters.slice() : [];
+    function printList() {
+        var g = grid();
+        if (!g) return;
+        var ds = g.dataSource;
+        var all = ds.data();
+        var rows = ds.filter()
+            ? kendo.data.Query.process(all, { filter: ds.filter(), sort: ds.sort() }).data
+            : (all.toJSON ? all.toJSON() : [].slice.call(all));
 
-            current = current.filter(function (f) {
-                return !(f.field === 'OrderStatus' && f._completedFilter);
+        rows.sort(function (a, b) {
+            var ra = (a.OrderRep || '').toLowerCase();
+            var rb = (b.OrderRep || '').toLowerCase();
+            return ra < rb ? -1 : ra > rb ? 1 : 0;
+        });
+
+        var cols = [
+            { t: 'Order Rep',  g: function (r) { return r.OrderRep; } },
+            { t: 'Order',      g: function (r) { return r.OrderNumber; } },
+            { t: 'Customer',   g: function (r) { return r.Company; } },
+            { t: 'Component',  g: function (r) { return r.Aero && r.Aero.Component; } },
+            { t: 'Serial No.', g: function (r) { return r.Aero && r.Aero.SerialNumber; } },
+            { t: 'Created At', g: function (r) { return r.CreatedAt ? new Date(r.CreatedAt).toLocaleDateString() : ''; } },
+            { t: 'QA',         g: function () { return 'WIP  SHIP  HOLD  EST'; }, center: true }
+        ];
+
+        var h = '<html><head><title>Orders</title><style>';
+        h += 'body{font-family:Arial,sans-serif;font-size:11px;margin:20px}';
+        h += 'table{border-collapse:collapse;width:100%}';
+        h += 'th{background:#378ADD;color:#fff;padding:5px 8px;text-align:left;font-size:11px}';
+        h += 'td{padding:4px 8px;border-bottom:1px solid #ddd;vertical-align:top}';
+        h += 'tr:nth-child(even) td{background:#f5f5f5}';
+        h += '@media print{button{display:none}}';
+        h += '</style></head><body>';
+        h += '<h2>Customer Orders &mdash; ' + rows.length + ' &mdash; ' + new Date().toLocaleDateString() + '</h2>';
+        h += '<table><thead><tr>';
+        cols.forEach(function (c) { h += '<th' + (c.center ? ' style="text-align:center"' : '') + '>' + c.t + '</th>'; });
+        h += '</tr></thead><tbody>';
+        var last = null;
+        rows.forEach(function (r) {
+            if (last !== null && r.OrderRep !== last) {
+                h += '<tr><td colspan="' + cols.length + '" style="padding:4px 0;border:none"></td></tr>';
+                h += '<tr><td colspan="' + cols.length + '" style="padding:0;border:none;border-top:2px solid #378ADD"></td></tr>';
+                h += '<tr><td colspan="' + cols.length + '" style="padding:4px 0;border:none"></td></tr>';
+            }
+            last = r.OrderRep;
+            h += '<tr>';
+            cols.forEach(function (c) {
+                var s = c.center ? ' style="text-align:center;font-weight:600;letter-spacing:2px;white-space:nowrap"' : '';
+                h += '<td' + s + '>' + (c.g(r) || '') + '</td>';
             });
-
-            if (!sw.check()) {
-                current.push({ field: 'OrderStatus', operator: 'neq', value: 'Complete',  _completedFilter: true });
-                current.push({ field: 'OrderStatus', operator: 'neq', value: 'Cancelled', _completedFilter: true });
-            }
-
-            ds.filter(current);
-        } catch (e) {}
+            h += '</tr>';
+        });
+        h += '</tbody></table></body></html>';
+        var w = window.open('', '_blank', 'width=1000,height=700');
+        w.document.write(h);
+        w.document.close();
+        setTimeout(function () { w.print(); }, 500);
     }
-
-    function setCompletedDefault() {
-        try {
-            var sw = $('#wCompleted').data('kendoSwitch');
-            if (sw) {
-                if (!sw.check()) sw.check(true);
-                sw.unbind('change');
-                sw.bind('change', applyCompletedFilter);
-            }
-        } catch (e) {}
-    }
-
-    // =========================================================================
-    // INJECT UI
-    // =========================================================================
 
     function injectUI() {
-        if (document.getElementById('ofg-status')) return;
+        if (injected) return;
+        injected = true;
+
         var well = document.querySelector('.well.well-sm.open-bottom');
         if (!well) return;
 
-        var status = document.createElement('div');
-        status.id = 'ofg-status';
-        status.style.cssText = [
-            'position:fixed','bottom:16px','left:16px','z-index:99999',
-            'background:#555','color:#fff','font-size:12px',
-            'font-family:system-ui,sans-serif','padding:5px 10px',
-            'border-radius:6px','opacity:0','pointer-events:none',
-            'transition:opacity 0.3s'
-        ].join(';');
-        document.body.appendChild(status);
-
         var row = document.createElement('div');
-        row.style.cssText = 'margin-top:8px;display:flex;gap:8px;align-items:center;';
-
-        var refreshBtn = document.createElement('button');
-        refreshBtn.id = 'ofg-refresh-btn';
-        refreshBtn.textContent = '🔄 Refresh Orders';
-        refreshBtn.style.cssText = [
-            'padding:5px 14px','background:#555','color:#fff',
-            'border:none','border-radius:5px','font-size:13px',
-            'font-family:system-ui,sans-serif','font-weight:600','cursor:pointer'
-        ].join(';');
-        refreshBtn.addEventListener('click', function () {
-            showStatus('🔄 Refreshing...', '#555');
-            fetchAllOrders(function (err, records) {
-                if (err || !records) { showStatus('❌ Refresh failed', '#c0392b'); hideStatus(3000); return; }
-                dbSet(CACHE_KEY, { timestamp: Date.now(), records: records });
-                injectIntoGrid(records);
-                showStatus('✔ ' + records.length + ' orders refreshed', '#27ae60');
-                hideStatus(2500);
-            });
-        });
+        row.style.cssText = 'margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
 
         var clearBtn = document.createElement('button');
         clearBtn.id = 'ofg-clear-btn';
-        clearBtn.textContent = '✕ Clear Filters';
-        clearBtn.style.cssText = [
-            'padding:5px 14px','background:#fff','color:#c0392b',
-            'border:1px solid #c0392b','border-radius:5px','font-size:13px',
-            'font-family:system-ui,sans-serif','font-weight:600','cursor:pointer'
-        ].join(';');
-        clearBtn.addEventListener('click', function () {
-            ['OrderRepSearch','OrderNumberSearch','ProjectSearch',
-             'CompanySearch','ContactSearch'].forEach(function (id) {
-                var el = document.getElementById(id);
-                if (el) el.value = '';
-            });
-
-            try { $('#officeSelect').data('kendoMultiSelect').value([]); } catch (e) {}
-
-            var ss = document.getElementById('ofg-status-search');
-            if (ss) ss.value = '';
-
-            var grid = $('#grid').data('kendoGrid');
-            if (grid) {
-                grid.dataSource.filter([]);
-                grid.dataSource.sort({ field: 'CreatedAt', dir: 'desc' });
-            }
-
-            var wb = document.getElementById('ofg-wip-btn');
-            if (wb) wb.style.background = '#8e44ad';
-
-            try {
-                var sw = $('#wCompleted').data('kendoSwitch');
-                if (sw) {
-                    sw.check(true);
-                    applyCompletedFilter();
-                }
-            } catch (e) {}
-        });
+        clearBtn.textContent = '\u2715 Clear Filters';
+        clearBtn.style.cssText = BTN + 'background:#fff;color:#c0392b;border:1px solid #c0392b;';
+        clearBtn.addEventListener('click', clearFilters);
 
         var wipBtn = document.createElement('button');
         wipBtn.id = 'ofg-wip-btn';
-        wipBtn.textContent = '🔧 WIP Orders';
+        wipBtn.textContent = '\uD83D\uDD27 WIP Orders';
         wipBtn.title = 'Filter to Work in Progress orders only';
-        wipBtn.style.cssText = [
-            'padding:5px 14px','background:#8e44ad','color:#fff',
-            'border:none','border-radius:5px','font-size:13px',
-            'font-family:system-ui,sans-serif','font-weight:600','cursor:pointer'
-        ].join(';');
-        wipBtn.addEventListener('click', function () {
-            wipBtn.disabled = true;
-            wipBtn.textContent = '⏳ Refreshing...';
-            showStatus('🔄 Refreshing orders...', '#555');
-
-            fetchAllOrders(function (err, records) {
-                wipBtn.disabled = false;
-                wipBtn.textContent = '🔧 WIP Orders';
-                wipBtn.style.background = '#6c3483';
-
-                if (!err && records && records.length > 0) {
-                    dbSet(CACHE_KEY, { timestamp: Date.now(), records: records });
-                    injectIntoGrid(records);
-                    showStatus('✔ Orders refreshed', '#27ae60');
-                    hideStatus(1500);
-                } else {
-                    showStatus('⚠ Refresh failed — using cached data', '#e67e22');
-                    hideStatus(2500);
-                }
-
-                setTimeout(function () {
-                    var grid = $('#grid').data('kendoGrid');
-                    if (!grid) return;
-                    var ds = grid.dataSource;
-                    var current = ds.filter() ? ds.filter().filters.slice() : [];
-
-                    current = current.filter(function (f) { return f.field !== 'BristowStatus'; });
-
-                    current.push({ field: 'BristowStatus', operator: 'eq', value: 'Work in Progress' });
-                    current.push({ field: 'PrefixedOrderNumber', operator: 'contains', value: 'YEG' });
-                    ds.filter(current);
-
-                    try {
-                        var sw = $('#wCompleted').data('kendoSwitch');
-                        if (sw && sw.check()) {
-                            sw.check(false);
-                            applyCompletedFilter();
-                        }
-                    } catch (e) {}
-
-                    try {
-                        if (grid) grid.dataSource.sort({ field: 'OrderRep', dir: 'asc' });
-                    } catch (e) {}
-                }, 100);
-            });
-        });
+        wipBtn.style.cssText = BTN + 'background:#8e44ad;color:#fff;';
+        wipBtn.addEventListener('click', wipFilter);
 
         var printBtn = document.createElement('button');
         printBtn.id = 'ofg-print-btn';
-        printBtn.textContent = '🖨 Print List';
-        printBtn.style.cssText = [
-            'padding:5px 14px','background:#27ae60','color:#fff',
-            'border:none','border-radius:5px','font-size:13px',
-            'font-family:system-ui,sans-serif','font-weight:600','cursor:pointer'
-        ].join(';');
-        printBtn.addEventListener('click', function () {
-            var grid = $('#grid').data('kendoGrid');
-            if (!grid) return;
+        printBtn.textContent = '\uD83D\uDCA8 Print List';
+        printBtn.style.cssText = BTN + 'background:#27ae60;color:#fff;';
+        printBtn.addEventListener('click', printList);
 
-            var allData = grid.dataSource.data();
-            var ds = grid.dataSource;
-            var filtered = ds.filter() ? kendo.data.Query.process(allData, { filter: ds.filter(), sort: ds.sort() }).data : allData.toJSON ? allData.toJSON() : allData;
-
-            var cols = [
-                { field: 'OrderRep',            title: 'Order Rep' },
-                { field: 'PrefixedOrderNumber', title: 'Order' },
-                { field: 'Company',             title: 'Customer' },
-                { field: 'Component',           title: 'Component' },
-                { field: 'SerialNumber',        title: 'Serial No.' },
-                { field: 'CreatedAt',           title: 'Created At' },
-                { field: '_qa',                 title: 'QA' }
-            ];
-
-            var html = '<!DOCTYPE html><html><head><title>Customer Orders</title>';
-            html += '<style>';
-            html += 'body { font-family: Arial, sans-serif; font-size: 11px; margin: 20px; }';
-            html += 'h2 { font-size: 14px; margin-bottom: 10px; }';
-            html += 'table { border-collapse: collapse; width: 100%; }';
-            html += 'th { background: #378ADD; color: #fff; padding: 5px 8px; text-align: left; font-size: 11px; }';
-            html += 'td { padding: 4px 8px; border-bottom: 1px solid #ddd; vertical-align: top; }';
-            html += 'tr:nth-child(even) td { background: #f5f5f5; }';
-            html += '@media print { button { display: none; } }';
-            html += '</style></head><body>';
-            html += '<h2>Customer Orders — ' + filtered.length + ' records — ' + new Date().toLocaleDateString() + '</h2>';
-            html += '<table><thead><tr>';
-            cols.forEach(function (c) {
-                var align = c.field === '_qa' ? 'text-align:center;' : '';
-                html += '<th style="' + align + '">' + c.title + '</th>';
-            });
-            html += '</tr></thead>';
-
-            var lastRep = null;
-            var rows = filtered.slice();
-            html += '<tbody>';
-            rows.forEach(function (row, i) {
-                var repChanged = lastRep !== null && row['OrderRep'] !== lastRep;
-                lastRep = row['OrderRep'];
-
-                if (repChanged) {
-                    html += '<tr><td colspan="' + cols.length + '" style="padding:4px 0;border:none;background:transparent;"></td></tr>';
-                    html += '<tr><td colspan="' + cols.length + '" style="padding:0;border:none;border-top:2px solid #378ADD;"></td></tr>';
-                    html += '<tr><td colspan="' + cols.length + '" style="padding:4px 0;border:none;background:transparent;"></td></tr>';
-                }
-
-                var bgColor = (i % 2 === 0) ? '' : 'background:#f5f5f5;';
-                html += '<tr style="' + bgColor + '">';
-                cols.forEach(function (c) {
-                    if (c.field === '_qa') {
-                        html += '<td style="text-align:center;font-weight:600;letter-spacing:2px;white-space:nowrap;">WIP &nbsp; SHIP &nbsp; HOLD &nbsp; EST</td>';
-                    } else {
-                        var val = row[c.field];
-                        if (c.field === 'CreatedAt' && val) val = new Date(val).toLocaleDateString();
-                        html += '<td style="padding:4px 8px;border-bottom:1px solid #ddd;">' + (val || '') + '</td>';
-                    }
-                });
-                html += '</tr>';
-            });
-            html += '</tbody></table></body></html>';
-
-            var win = window.open('', '_blank', 'width=1000,height=700');
-            win.document.write(html);
-            win.document.close();
-            win.focus();
-            setTimeout(function () { win.print(); }, 500);
-        });
-
-        var hint = document.createElement('span');
-        hint.style.cssText = 'font-size:11px;color:#888;font-family:system-ui,sans-serif;';
-        hint.textContent = 'Refresh to pick up new orders';
-
-        row.appendChild(refreshBtn);
         row.appendChild(clearBtn);
         row.appendChild(wipBtn);
         row.appendChild(printBtn);
-        row.appendChild(hint);
         well.appendChild(row);
-
-        // --- Order Status search box ---
-        var statusGroup = document.createElement('div');
-        statusGroup.className = 'search-group';
-
-        var statusLabel = document.createElement('label');
-        statusLabel.textContent = 'Order Status:';
-
-        var statusSelect = document.createElement('select');
-        statusSelect.id = 'ofg-status-search';
-        statusSelect.className = 'form-control';
-        statusSelect.style.cssText = 'width:85%;display:inline-block;';
-        statusGroup.style.cssText = 'width:510px;background-color:#d8d8d8;padding:5px;border-radius:5px;margin-bottom:5px;display:inline-block;';
-
-        var statuses = ['', 'Open', 'InProgress', 'Complete', 'Cancelled', 'Ready'];
-        statuses.forEach(function (s) {
-            var opt = document.createElement('option');
-            opt.value = s;
-            opt.textContent = s === '' ? '(All)' : s;
-            statusSelect.appendChild(opt);
-        });
-
-        statusSelect.addEventListener('change', function () {
-            var grid = $('#grid').data('kendoGrid');
-            if (!grid) return;
-            var ds = grid.dataSource;
-            var current = ds.filter() ? ds.filter().filters.slice() : [];
-
-            current = current.filter(function (f) { return f.field !== 'OrderStatus'; });
-
-            if (statusSelect.value) {
-                current.push({ field: 'OrderStatus', operator: 'eq', value: statusSelect.value });
-            }
-            ds.filter(current);
-        });
-
-        statusGroup.appendChild(statusLabel);
-        statusGroup.appendChild(statusSelect);
-
-        var contactGroup = document.getElementById('ContactSearch');
-        contactGroup = contactGroup ? contactGroup.closest('.search-group') : null;
-        if (contactGroup) {
-            var br = document.createElement('br');
-            contactGroup.parentNode.insertBefore(br, contactGroup.nextSibling);
-            contactGroup.parentNode.insertBefore(statusGroup, br.nextSibling);
-        } else {
-            well.insertBefore(statusGroup, row);
-        }
     }
 
-    // =========================================================================
-    // MAIN
-    // =========================================================================
+    function init() {
+        var g = grid();
+        if (!g) return;
+
+        try {
+            g.options.filterable = g.options.filterable || {};
+            g.options.filterable.extra = false;
+            g.options.filterable.operators = {
+                string: { contains: 'Contains', eq: 'Is equal to', startswith: 'Starts with', doesnotcontain: 'Does not contain', neq: 'Is not equal to' },
+                number: { eq: 'Is equal to', gte: 'Is greater than or equal to', lte: 'Is less than or equal to' },
+                date: { eq: 'Is equal to', gte: 'Is after or equal to', lte: 'Is before or equal to' },
+                enums: { eq: 'Is equal to' }
+            };
+        } catch (e) {}
+
+        g.bind('dataBound', function () {
+            if (!wipActive || wipApplying) return;
+            wipApplying = true;
+            try {
+                var ds = g.dataSource;
+                var f = ds.filter() ? ds.filter().filters.slice() : [];
+                f = f.filter(function (x) { return !x._wip; });
+                f.push({ field: 'CustomFieldValues[0].Value', operator: 'eq', value: 'Work in Progress', _wip: true });
+                ds.filter(f);
+            } catch (e) {}
+            wipApplying = false;
+        });
+    }
 
     window.addEventListener('load', function () {
-        var tries = 0;
-        var tid = setInterval(function () {
-            tries++;
-            var grid = window.$ && $('#grid').data('kendoGrid');
-            if (grid && grid.dataSource) {
-                clearInterval(tid);
+        var t = 0, id = setInterval(function () {
+            t++;
+            if (window.$ && grid()) {
+                clearInterval(id);
                 injectUI();
-                setCompletedDefault();
-
-                dbGet(CACHE_KEY, function (err, cached) {
-                    var now     = Date.now();
-                    var isEmpty = !cached || !cached.records || cached.records.length === 0;
-                    var isStale = !cached || (now - cached.timestamp) > MAX_AGE_MS;
-
-                    if (isEmpty) {
-                        showStatus('⏳ Loading all orders (first time)...', '#555');
-                        fetchAllOrders(function (err, records) {
-                            if (err || !records) { showStatus('❌ Failed to load', '#c0392b'); hideStatus(3000); return; }
-                            dbSet(CACHE_KEY, { timestamp: now, records: records });
-                            injectIntoGrid(records);
-                            showStatus('✔ ' + records.length + ' orders loaded & cached', '#27ae60');
-                            hideStatus(2500);
-
-                            setInterval(function () {
-                                fetchAllOrders(function (err, records) {
-                                    if (err || !records) return;
-                                    dbSet(CACHE_KEY, { timestamp: Date.now(), records: records });
-                                    injectIntoGrid(records);
-                                    showStatus('🔄 Auto-refreshed', '#27ae60');
-                                    hideStatus(2000);
-                                    console.log('[OrdersCache] Auto-refreshed ' + records.length + ' orders.');
-                                });
-                            }, 5 * 60 * 1000);
-                        });
-                    } else {
-                        showStatus('⚡ Orders loaded from cache', '#27ae60');
-                        injectIntoGrid(cached.records);
-                        hideStatus(1500);
-
-                        if (isStale) {
-                            setTimeout(function () {
-                                showStatus('🔄 Refreshing in background...', '#555');
-                                fetchAllOrders(function (err, records) {
-                                    if (err || !records) return;
-                                    dbSet(CACHE_KEY, { timestamp: Date.now(), records: records });
-                                    injectIntoGrid(records);
-                                    showStatus('✔ Orders updated', '#27ae60');
-                                    hideStatus(2000);
-                                });
-                            }, 3000);
-                        }
-                    }
-                });
+                init();
             }
-            if (tries > 40) clearInterval(tid);
+            if (t > 40) clearInterval(id);
         }, 250);
     });
-
 })();
