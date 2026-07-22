@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - Orders Grid Filter Optimizer
 // @namespace    http://tampermonkey.net/
-// @version      7.0
+// @version      7.1
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @description  WIP, Print, Clear buttons. Defaults filters to contains.
@@ -156,16 +156,15 @@
         var g = grid();
         if (!g) return;
 
-        try {
-            g.options.filterable = g.options.filterable || {};
-            g.options.filterable.extra = false;
-            g.options.filterable.operators = {
-                string: { contains: 'Contains', eq: 'Is equal to', startswith: 'Starts with', doesnotcontain: 'Does not contain', neq: 'Is not equal to' },
-                number: { eq: 'Is equal to', gte: 'Is greater than or equal to', lte: 'Is less than or equal to' },
-                date: { eq: 'Is equal to', gte: 'Is after or equal to', lte: 'Is before or equal to' },
-                enums: { eq: 'Is equal to' }
-            };
-        } catch (e) {}
+        g.bind('filterMenuInit', function (e) {
+            try {
+                var ddl = e.container.find('[data-role="dropdownlist"]').first().data('kendoDropDownList');
+                if (ddl) {
+                    ddl.value('contains');
+                    ddl.trigger('change');
+                }
+            } catch (err) {}
+        });
 
         g.bind('dataBound', function () {
             if (!wipActive || wipApplying) return;
