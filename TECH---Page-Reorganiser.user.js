@@ -226,6 +226,7 @@
             });
             css.push('#ProgressArea { display: none !important; }');
             css.push('a.btn-info[href*="Optional_Report7"]:not([data-tech-inspected]) { display: none !important; }');
+            css.push('.lq-flex-column { display: none !important; }');
             HIDDEN_FIELD_ROW_SELECTORS.forEach(function(s){ css.push('tr:has(' + s + ') { display: none !important; }'); });
             css.push('tr:has(label[for="OrderHead_TermsAndConditions"]),tr:has(label[for="OrderHead_ShippingInstructions"]) { display: none !important; }');
 
