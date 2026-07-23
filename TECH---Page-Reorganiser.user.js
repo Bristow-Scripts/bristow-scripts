@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      6.5
+// @version      6.6
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -14,6 +14,7 @@
 (function () {
     'use strict';
     if (location.pathname.startsWith('/ReportGenerator')) return;
+    if (location.search.includes('handler=ViewAeroFile')) return;
     var TS = window.TechShared || null;
     var STORAGE_KEY = 'techModeEnabled';
     var techMode = localStorage.getItem(STORAGE_KEY) !== 'false';
@@ -207,8 +208,6 @@
             css.push('button[onclick*="openAdvanceSelectByOption"],a.btn-success[href="#AddPartTarget"],a[href*="handler=Template"],button[onclick*="importWizard"],button[onclick*="addPartFromSearch"],button[onclick*="lockComponents"] { display: none !important; }');
             css.push('.row.content-group:has(a[data-target="#collapseRQs"]),.row.content-group:has(a[data-target="#collapseCustomerDocs"]) { display: none !important; }');
             css.push('a[href="#RQsTarget"] { display: none !important; }');
-            css.push('.btn-group.btn-group-sm:has(a[href="#HeaderTarget"]) { margin-left: -710px; }');
-            css.push('@media (max-width: 1400px) { .flex-row:has(.btn-group.btn-group-sm) > .custom-header-col:has(.btn-group) { flex-basis: 100% !important; order: 2 !important; margin-top: 8px !important; } .flex-row:has(.btn-group.btn-group-sm) > .custom-header-col:has(.btn-group) > .text-center { display: flex !important; flex-wrap: nowrap !important; justify-content: flex-start !important; align-items: center !important; gap: 4px !important; } .flex-row:has(.btn-group.btn-group-sm) > .vertical-col { order: 1 !important; } .flex-row:has(.btn-group.btn-group-sm) > .order-action-toolbar { order: 0 !important; } .btn-group.btn-group-sm:has(a[href="#HeaderTarget"]) { margin-left: 0 !important; } .btn-group.btn-group-sm:has(a[href="#HeaderTarget"]) + a.btn { margin-left: 0 !important; } }');
             css.push('.jump-target { scroll-margin-top: 100px !important; }');
             css.push('tr:has(a[href^="/Orders/Quotes/Edit"]),tr:has(span[data-valmsg-for="OrderHead.OrderTaxes"]) { display: none !important; }');
             css.push('tr:has(a.btn-primary[href="#AddPartTarget"]):has(a.btn-danger[onclick="removeComponent()"]) { display: none !important; }');
