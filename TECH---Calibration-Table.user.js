@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      6.8
+// @version      6.9
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -766,6 +766,15 @@
 
         function addRow() {
             rows.push(Array(cols.length).fill(''));
+            // Auto-grow slave rows to match master
+            if (!isSlave) {
+                group.widgets.forEach(w => {
+                    if (w.isSlave) {
+                        while (w._rows.length < rows.length) w._rows.push(Array(cols.length).fill(''));
+                        w.render(); w.sync();
+                    }
+                });
+            }
             render();
             sync();
         }
@@ -1127,7 +1136,9 @@
                         btn.addEventListener('click', () => {
                             const slave = group.widgets.find(w => w.isSlave);
                             if (!slave) return;
-                            slave._rows.forEach((sRow, ri) => { sRow[ci] = rows[ri] ? rows[ri][ci] || '' : ''; });
+                            // Grow slave rows to match master if needed
+                            while (slave._rows.length < rows.length) slave._rows.push(Array(cols.length).fill(''));
+                            rows.forEach((masterRow, ri) => { slave._rows[ri][ci] = masterRow[ci] || ''; });
                             slave.render(); slave.sync();
                         });
                         ftd.appendChild(btn);
@@ -1553,7 +1564,15 @@
             buildSpecRows,
             updateErrorHeadersUI: updateErrorHeaders,
             addRow() {
+                if (isSlave) return; // master's addRow syncs slave rows automatically
                 rows.push(Array(cols.length).fill(''));
+                // Auto-grow slave rows to match master
+                group.widgets.forEach(w => {
+                    if (w.isSlave) {
+                        while (w._rows.length < rows.length) w._rows.push(Array(cols.length).fill(''));
+                        w.render(); w.sync();
+                    }
+                });
                 render(); sync();
             },
             removeRow(ri) {
