@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      6.9
+// @version      7.1
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -198,6 +198,7 @@
 
         /* ── SPEC ROW LABELS ── */
         .cal-spec-label { font-size: 11px; font-weight: 700; color: #333; }
+        .cal-spec-mismatch { background: #fff3cd !important; border: 1px solid #ffc107 !important; }
         .cal-head-edit {
             background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.5);
             border-radius: 2px; color: #fff; font-size: 12px;
@@ -633,7 +634,34 @@
                 cardCols, sheetCols, roles, gaugeSpecs,
                 viewMode,
                 widgets: [],
+                manualEdits: initManualEdits(groupId),
             };
+        }
+
+        // Compare master vs slave gaugeSpecs on load — any pre-existing
+        // difference means the user intentionally set a different value on
+        // the slave, so we mark it as "manual" to prevent the master's
+        // sync handlers from overwriting it.
+        function initManualEdits(masterTAId) {
+            const edits = {};
+            const slaveConfig = TABLES.find(t => {
+                if (t.linkedFrom === undefined && t.linkedFrom !== 0) return false;
+                return resolveGroupId(t) === masterTAId;
+            });
+            if (!slaveConfig) return edits;
+            const slaveTAId = resolveTextareaId(slaveConfig);
+            const masterSpecs = loadGaugeSpecs(masterTAId);
+            const slaveSpecs = loadGaugeSpecs(slaveTAId);
+            if (!masterSpecs || !masterSpecs.length || !slaveSpecs || !slaveSpecs.length) return edits;
+            const fields = ['serial', 'unit', 'tolerance', 'tolMode', 'tolLow', 'tolHigh', 'tolSplit'];
+            for (let gi = 0; gi < Math.min(masterSpecs.length, slaveSpecs.length); gi++) {
+                for (const f of fields) {
+                    if ((masterSpecs[gi][f] || '') !== (slaveSpecs[gi][f] || '')) {
+                        edits[gi + '_' + f] = true;
+                    }
+                }
+            }
+            return edits;
         }
 
         // cardCols/sheetCols/roles are shared array objects across the linked
@@ -649,7 +677,7 @@
         }
         // Slave gets its own copy of gaugeSpecs so tolerance edits are one-way (master→slave)
         const gaugeSpecs = isSlave
-            ? JSON.parse(JSON.stringify(group.gaugeSpecs))
+            ? (loadGaugeSpecs(resolvedId) || (existing.gaugeSpecs && existing.gaugeSpecs.length ? existing.gaugeSpecs : JSON.parse(JSON.stringify(group.gaugeSpecs))))
             : group.gaugeSpecs;
 
         let rows = (existing.rows && existing.rows.length)
@@ -690,7 +718,7 @@
         }
 
         function hasAnyData() {
-            if (gaugeSpecs.some(s => s.unit || s.fsPct || s.fsVal || s.serial || s.tolerance)) return true;
+            if (gaugeSpecs.some(s => s.unit || s.serial)) return true;
             return rows.some(row => row.some(c => c && c.trim() !== ''));
         }
 
@@ -1256,13 +1284,20 @@
                 row.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: 'S/N:' }));
                 const snInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: 'Serial #' });
                 snInp.style.cssText = 'width:110px;font-size:12px;'; snInp.value = spec.serial || '';
+                snInp.dataset.specGi = gi; snInp.dataset.specField = 'serial';
                 snInp.addEventListener('input', () => {
                     spec.serial = snInp.value; sync();
                     if (!isSlave) {
                         group.widgets.forEach(w => {
-                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].serial = snInp.value; }
+                            if (w !== widget && w.isSlave) {
+                                if (!group.manualEdits[gi + '_serial']) w._gaugeSpecs[gi].serial = snInp.value;
+                                w.buildSpecRows();
+                            }
                         });
+                    } else {
+                        group.manualEdits[gi + '_serial'] = true;
                     }
+                    highlightSpecMismatches();
                 });
                 row.appendChild(snInp);
 
@@ -1275,6 +1310,7 @@
                 unitInp.type = 'text';
                 unitInp.placeholder = 'Units';
                 unitInp.value = spec.unit || '';
+                unitInp.dataset.specGi = gi; unitInp.dataset.specField = 'unit';
                 unitInp.setAttribute('list', unitDatalistId);
                 const datalist = document.createElement('datalist');
                 datalist.id = unitDatalistId;
@@ -1289,9 +1325,15 @@
                     spec.unit = unitInp.value; sync();
                     if (!isSlave) {
                         group.widgets.forEach(w => {
-                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].unit = unitInp.value; }
+                            if (w !== widget && w.isSlave) {
+                                if (!group.manualEdits[gi + '_unit']) w._gaugeSpecs[gi].unit = unitInp.value;
+                                w.buildSpecRows();
+                            }
                         });
+                    } else {
+                        group.manualEdits[gi + '_unit'] = true;
                     }
+                    highlightSpecMismatches();
                 });
 
                 // ── Tolerance section ──
@@ -1300,6 +1342,7 @@
                 // Toggle switch (always visible, placed after Unit)
                 const tolToggle = document.createElement('label');
                 tolToggle.className = 'cal-toggle';
+                tolToggle.dataset.specGi = gi; tolToggle.dataset.specField = 'tolMode';
                 tolToggle.title = 'Toggle between %TOL± (simple) and %FS (section-based) tolerance';
                 const tolCheckbox = document.createElement('input');
                 tolCheckbox.type = 'checkbox'; tolCheckbox.checked = isSection;
@@ -1315,10 +1358,14 @@
                     spec.tolMode = tolCheckbox.checked ? 'section' : 'simple'; sync();
                     if (!isSlave) {
                         group.widgets.forEach(w => {
-                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].tolMode = spec.tolMode; }
+                            if (w !== widget && w.isSlave) {
+                                if (!group.manualEdits[gi + '_tolMode']) w._gaugeSpecs[gi].tolMode = spec.tolMode;
+                                w.buildSpecRows();
+                            }
                         });
+                    } else {
+                        group.manualEdits[gi + '_tolMode'] = true;
                     }
-                    render();
                     buildSpecRows();
                 });
                 row.appendChild(tolToggle);
@@ -1329,13 +1376,19 @@
                 tolSimpleWrap.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: '%TOL±:' }));
                 const tolInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '%' });
                 tolInp.style.cssText = 'width:50px;font-size:12px;'; tolInp.value = spec.tolerance || '';
+                tolInp.dataset.specGi = gi; tolInp.dataset.specField = 'tolerance';
                 tolInp.addEventListener('input', () => {
                     spec.tolerance = tolInp.value; sync();
                     if (!isSlave) {
                         group.widgets.forEach(w => {
-                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].tolerance = tolInp.value; }
+                            if (w !== widget && w.isSlave) {
+                                if (!group.manualEdits[gi + '_tolerance']) { w._gaugeSpecs[gi].tolerance = tolInp.value; w.buildSpecRows(); }
+                            }
                         });
+                    } else {
+                        group.manualEdits[gi + '_tolerance'] = true;
                     }
+                    highlightSpecMismatches();
                 });
                 tolSimpleWrap.appendChild(tolInp);
                 row.appendChild(tolSimpleWrap);
@@ -1346,45 +1399,84 @@
                 tolSectionWrap.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: 'Lo:' }));
                 const lowInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '#' });
                 lowInp.style.cssText = 'width:50px;font-size:12px;'; lowInp.value = spec.tolLow || '';
+                lowInp.dataset.specGi = gi; lowInp.dataset.specField = 'tolLow';
                 lowInp.addEventListener('input', () => {
                     spec.tolLow = lowInp.value; sync();
                     if (!isSlave) {
                         group.widgets.forEach(w => {
-                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].tolLow = lowInp.value; }
+                            if (w !== widget && w.isSlave) {
+                                if (!group.manualEdits[gi + '_tolLow']) { w._gaugeSpecs[gi].tolLow = lowInp.value; w.buildSpecRows(); }
+                            }
                         });
+                    } else {
+                        group.manualEdits[gi + '_tolLow'] = true;
                     }
+                    highlightSpecMismatches();
                 });
                 tolSectionWrap.appendChild(lowInp);
                 tolSectionWrap.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: 'Hi:' }));
                 const highInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '#' });
                 highInp.style.cssText = 'width:50px;font-size:12px;'; highInp.value = spec.tolHigh || '';
+                highInp.dataset.specGi = gi; highInp.dataset.specField = 'tolHigh';
                 highInp.addEventListener('input', () => {
                     spec.tolHigh = highInp.value; sync();
                     if (!isSlave) {
                         group.widgets.forEach(w => {
-                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].tolHigh = highInp.value; }
+                            if (w !== widget && w.isSlave) {
+                                if (!group.manualEdits[gi + '_tolHigh']) { w._gaugeSpecs[gi].tolHigh = highInp.value; w.buildSpecRows(); }
+                            }
                         });
+                    } else {
+                        group.manualEdits[gi + '_tolHigh'] = true;
                     }
+                    highlightSpecMismatches();
                 });
                 tolSectionWrap.appendChild(highInp);
                 tolSectionWrap.appendChild(Object.assign(document.createElement('span'), { className: 'cal-spec-label', textContent: '%FS:' }));
                 const splitInp = Object.assign(document.createElement('input'), { className: 'cal-col-input', type: 'text', placeholder: '%-%-%' });
                 splitInp.style.cssText = 'width:65px;font-size:12px;'; splitInp.value = spec.tolSplit || '';
+                splitInp.dataset.specGi = gi; splitInp.dataset.specField = 'tolSplit';
                 splitInp.addEventListener('input', () => {
                     spec.tolSplit = splitInp.value; sync();
                     if (!isSlave) {
                         group.widgets.forEach(w => {
-                            if (w !== widget && w.isSlave) { w._gaugeSpecs[gi].tolSplit = splitInp.value; }
+                            if (w !== widget && w.isSlave) {
+                                if (!group.manualEdits[gi + '_tolSplit']) { w._gaugeSpecs[gi].tolSplit = splitInp.value; w.buildSpecRows(); }
+                            }
                         });
+                    } else {
+                        group.manualEdits[gi + '_tolSplit'] = true;
                     }
+                    highlightSpecMismatches();
                 });
                 tolSectionWrap.appendChild(splitInp);
                 row.appendChild(tolSectionWrap);
 
                 specWrap.appendChild(row);
             });
+            highlightSpecMismatches();
         }
         buildSpecRows();
+
+        function highlightSpecMismatches() {
+            const master = group.widgets.find(w => !w.isSlave);
+            if (!master) return;
+            group.widgets.forEach(w => {
+                if (!w.isSlave) return;
+                for (let gi = 0; gi < Math.min(group.gaugeSpecs.length, w._gaugeSpecs.length); gi++) {
+                    const ms = group.gaugeSpecs[gi];
+                    const ss = w._gaugeSpecs[gi];
+                    const fields = ['serial', 'unit', 'tolerance', 'tolLow', 'tolHigh', 'tolSplit'];
+                    for (const f of fields) {
+                        const el = w.specWrap.querySelector(`[data-spec-gi="${gi}"][data-spec-field="${f}"]`);
+                        if (el) el.classList.toggle('cal-spec-mismatch', (ms[f] || '') !== (ss[f] || ''));
+                    }
+                    const modeEl = w.specWrap.querySelector(`[data-spec-gi="${gi}"][data-spec-field="tolMode"]`);
+                    if (modeEl) modeEl.classList.toggle('cal-spec-mismatch', (ms.tolMode || 'simple') !== (ss.tolMode || 'simple'));
+                }
+            });
+        }
+        highlightSpecMismatches();
 
         function updateErrorHeaders() {
             // No-op: renderCard() already computes the correct header text
@@ -1559,6 +1651,7 @@
             _rows: rows,
             _config: config,
             _gaugeSpecs: gaugeSpecs,
+            specWrap,
             render,
             sync,
             buildSpecRows,
