@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      7.1
+// @version      7.2
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -1708,7 +1708,6 @@
     // pulling the wrench, and that's where the reading lands.
     let serialPort = null;
     let serialReader = null;
-    let serialAutoReconnectAttempted = false;
 
     // Some USB-serial drivers (CH340 in particular) are slow to release the port
     // if it isn't explicitly closed before the page unloads — leaving the next
@@ -1790,11 +1789,15 @@
         });
     }
 
-    // One-time auto-reopen of a previously authorized port, run after the
-    // first table finishes building (so status elements already exist).
+    // Auto-reopen of a previously authorized port.  Runs after every
+    // tryBuildAll() — but only attempts reconnect if we don't already have
+    // an active connection.  This handles SPA navigation (no full page
+    // reload) where the script stays alive but the user moves to a new
+    // work order.
     function tryAutoReconnectSerial() {
-        if (serialAutoReconnectAttempted || !navigator.serial) return;
-        serialAutoReconnectAttempted = true;
+        if (!navigator.serial) return;
+        // Already connected or connection in progress — skip
+        if (serialPort && serialPort.readable) return;
         navigator.serial.getPorts().then(ports => {
             if (ports.length) { serialPort = ports[0]; openSerial(); }
         });
