@@ -1,0 +1,281 @@
+// ==UserScript==
+// @name         ALL - Library Control Sheet Print
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  Adds a Print button to the Documentation Edit page that renders a Library Control Sheet from the form fields, description text, and item list.
+// @author       You
+// @match        https://bristow-app.azurewebsites.net/Catalog/Documentations/EditDocumentation*
+// @grant        none
+// @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Library-Control-Sheet-Print.user.js
+// @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Library-Control-Sheet-Print.user.js
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    // ─── FIELD IDS ──────────────────────────────────────────────────────────
+    const FIELD = {
+        id:            'Documentation_Id',
+        name:          'Documentation_Name',
+        expDate:       'Documentation_ExpirationDate',
+        reviewDate:    'Documentation_ReviewDate',
+        description:   'Documentation_Description',
+        docStatus:     'Documentation_DocStatus',
+        manualNumber:  'Documentation_ManualNumber',
+        manualType:    'Documentation_ManualType',
+        manufacturer:  'Documentation_Manufacturer',
+        location:      'Documentation_Location',
+        capability:    'Documentation_Capability',
+        qcWorkLevel:   'Documentation_QcWorkLevel',
+        infoSource:    'Documentation_InformationSource',
+        section:       'Documentation_Section',
+        revisionInfo:  'Documentation_RevisionInfo',
+    };
+
+    // ─── HELPERS ────────────────────────────────────────────────────────────
+    function val(id) {
+        const el = document.getElementById(id);
+        return el ? (el.value || '').trim() : '';
+    }
+
+    function selectedText(id) {
+        const el = document.getElementById(id);
+        if (!el || el.tagName !== 'SELECT') return '';
+        const opt = el.options[el.selectedIndex];
+        return opt ? opt.textContent.trim() : '';
+    }
+
+    function escapeHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // yyyy-MM-dd -> DD-MMM-YYYY (e.g. 2027-03-14 -> 14-Mar-2027)
+    function formatDMY(isoDate) {
+        if (!isoDate) return '';
+        const m = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (!m) return isoDate;
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const day = parseInt(m[3], 10);
+        const mon = months[parseInt(m[2], 10) - 1] || m[2];
+        return `${day}-${mon}-${m[1]}`;
+    }
+
+    function capabilityToYesNo(raw) {
+        const v = (raw || '').trim().toUpperCase();
+        if (v === 'TRUE' || v === 'YES' || v === 'Y') return 'Yes';
+        if (v === 'FALSE' || v === 'NO' || v === 'N') return 'No';
+        return raw || '';
+    }
+
+    // Pull "Verification Cycle", the DETAILS block, and the VERIFICATION HISTORY
+    // block out of the freeform Description textarea.
+    function parseDescription(text) {
+        const result = { verificationCycle: '', generalInfo: '', verificationHistory: '' };
+        if (!text) return result;
+
+        const vcMatch = text.match(/Verification Cycle:\s*(\d+)/i);
+        if (vcMatch) result.verificationCycle = vcMatch[1];
+
+        const detailsIdx = text.search(/DETAILS:/i);
+        const vhIdx = text.search(/VERIFICATION HISTORY:/i);
+
+        if (detailsIdx !== -1) {
+            const end = vhIdx !== -1 ? vhIdx : text.length;
+            result.generalInfo = text.slice(detailsIdx + 'DETAILS:'.length, end).trim();
+        }
+        if (vhIdx !== -1) {
+            result.verificationHistory = text.slice(vhIdx + 'VERIFICATION HISTORY:'.length).trim();
+        }
+        return result;
+    }
+
+    function getTagValue(tags, tagTypeName) {
+        if (!tags || !tags.length) return '';
+        const t = tags.find(x => x.TagTypeName === tagTypeName);
+        return t ? (t.TagValue || '') : '';
+    }
+
+    // Strip the part number and manufacturer name out of an item's long
+    // description so it prints the same way the paper sheet does
+    // ("Flight Director Indicator 772-5005-004   Rockwell Collins" -> "Flight Director Indicator").
+    function cleanItemDescription(desc, partNumber, manufacturer) {
+        let d = desc || '';
+        if (partNumber) d = d.split(partNumber).join('');
+        if (manufacturer) d = d.split(manufacturer).join('');
+        return d.replace(/\s+/g, ' ').trim();
+    }
+
+    async function fetchItems(documentationId) {
+        const url = `./EditDocumentation?documentationId=${encodeURIComponent(documentationId)}&handler=Items`;
+        try {
+            const resp = await fetch(url, { credentials: 'same-origin' });
+            if (!resp.ok) return [];
+            const data = await resp.json();
+            if (Array.isArray(data)) return data;
+            if (Array.isArray(data.Data)) return data.Data;
+            if (Array.isArray(data.data)) return data.data;
+            return [];
+        } catch (e) {
+            console.error('Failed to fetch items for print sheet:', e);
+            return [];
+        }
+    }
+
+    // ─── PRINT HTML BUILDER ─────────────────────────────────────────────────
+    function buildPrintHTML(fields, parsedDesc, itemRows) {
+        const capYesNo = capabilityToYesNo(fields.capability);
+
+        let rowsHtml = '';
+        if (itemRows.length) {
+            itemRows.forEach(r => {
+                rowsHtml += `<tr>
+                    <td>${escapeHtml(fields.manualNumber)}</td>
+                    <td>${escapeHtml(r.partNumber)}</td>
+                    <td>${escapeHtml(r.description)}</td>
+                    <td>${escapeHtml(capYesNo)}</td>
+                </tr>`;
+            });
+        } else {
+            rowsHtml = `<tr><td colspan="4" class="lcs-empty">No items found</td></tr>`;
+        }
+
+        return `
+        <h1>LIBRARY CONTROL SHEET</h1>
+
+        <table class="lcs-box">
+            <tr>
+                <td class="lcs-label">MANUAL NUMBER</td>
+                <td class="lcs-big">${escapeHtml(fields.manualNumber)}</td>
+                <th colspan="2">MATERIAL STATUS</th>
+                <th colspan="2">${escapeHtml(fields.docStatus || 'STATUS')}</th>
+            </tr>
+            <tr>
+                <td class="lcs-label">LOCATION</td>
+                <td class="lcs-big">${escapeHtml(fields.location)}</td>
+                <td class="lcs-label" colspan="2">Verification Due:</td>
+                <td colspan="2">${escapeHtml(formatDMY(fields.expDate))}</td>
+            </tr>
+            <tr>
+                <td class="lcs-label">CAP</td>
+                <td>${escapeHtml(capYesNo)}</td>
+                <td class="lcs-label" colspan="2">Verification Cycle: (Months)</td>
+                <td colspan="2">${escapeHtml(parsedDesc.verificationCycle)}</td>
+            </tr>
+            <tr>
+                <td class="lcs-label">QC Work Level</td>
+                <td>${escapeHtml(fields.qcWorkLevel)}</td>
+                <td class="lcs-label">Section</td>
+                <td colspan="3">${escapeHtml(fields.section)}</td>
+            </tr>
+            <tr>
+                <td class="lcs-label">MANUFACTURER</td>
+                <td colspan="5">${escapeHtml(fields.manufacturer)}</td>
+            </tr>
+            <tr>
+                <td class="lcs-label">MANUAL TYPE</td>
+                <td colspan="5">${escapeHtml(fields.manualType)}</td>
+            </tr>
+            <tr>
+                <td class="lcs-label">REVISION INFO</td>
+                <td colspan="5">${escapeHtml(fields.revisionInfo)}</td>
+            </tr>
+        </table>
+
+        <table class="lcs-box">
+            <tr><th>General Information Source</th></tr>
+            <tr><td class="lcs-freetext">${escapeHtml(parsedDesc.generalInfo) || '&nbsp;'}</td></tr>
+        </table>
+
+        <table class="lcs-box">
+            <tr><th>Verification History</th></tr>
+            <tr><td class="lcs-history-cell"><div class="lcs-history">${escapeHtml(parsedDesc.verificationHistory) || '&nbsp;'}</div></td></tr>
+        </table>
+
+        <table class="lcs-items">
+            <thead>
+                <tr><th>MAN. #</th><th>PART NUMBER</th><th>DESCRIPTION</th><th>CAP</th></tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+        </table>
+        `;
+    }
+
+    async function printLibraryControlSheet() {
+        const documentationId = val(FIELD.id);
+        const fields = {
+            manualNumber: val(FIELD.manualNumber),
+            manualType:   val(FIELD.manualType),
+            manufacturer: val(FIELD.manufacturer),
+            location:     val(FIELD.location),
+            capability:   val(FIELD.capability),
+            qcWorkLevel:  val(FIELD.qcWorkLevel),
+            infoSource:   val(FIELD.infoSource),
+            section:      val(FIELD.section),
+            revisionInfo: val(FIELD.revisionInfo),
+            expDate:      val(FIELD.expDate),
+            docStatus:    selectedText(FIELD.docStatus),
+        };
+        const parsedDesc = parseDescription(val(FIELD.description));
+
+        const rawItems = documentationId ? await fetchItems(documentationId) : [];
+        const itemRows = rawItems.map(item => {
+            const partNumber = getTagValue(item.Tags, 'Part Number');
+            return {
+                partNumber,
+                description: cleanItemDescription(item.Description, partNumber, fields.manufacturer),
+            };
+        });
+
+        const win = window.open('', '_blank', 'width=900,height=1000');
+        if (!win) { alert('Pop-up blocked — please allow pop-ups for this site to print.'); return; }
+
+        const css = `
+            body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 24px; font-size: 12px; }
+            h1 { font-size: 20px; margin: 0 0 12px; }
+            table.lcs-box, table.lcs-items { border-collapse: collapse; width: 100%; margin-bottom: 10px; }
+            table.lcs-box td, table.lcs-box th, table.lcs-items td, table.lcs-items th { border: 1px solid #333; padding: 4px 6px; text-align: left; vertical-align: top; }
+            table.lcs-box th { background: #e6e6e6; font-size: 12px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .lcs-label { font-weight: 600; width: 160px; background: #f5f5f5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .lcs-big { font-size: 16px; font-weight: 700; }
+            .lcs-blank { min-width: 60px; }
+            .lcs-freetext { white-space: pre-wrap; min-height: 40px; }
+            .lcs-history-cell { padding: 0; }
+            .lcs-history { font-size: 10px; line-height: 12px; height: 48px; overflow: hidden; white-space: pre-wrap; padding: 4px 6px; }
+            table.lcs-items th { background: #265c89; color: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            table.lcs-items td.lcs-empty { text-align: center; color: #999; font-style: italic; }
+            .lcs-cb { display: inline-block; }
+            .lcs-box-cb { display: inline-block; width: 11px; height: 11px; border: 1px solid #333; margin-right: 4px; vertical-align: middle; }
+            @media print { body { margin: 0.4in; } }
+        `;
+
+        win.document.write(`<!DOCTYPE html><html><head><title>Library Control Sheet - ${escapeHtml(fields.manualNumber)}</title><meta charset="utf-8"><style>${css}</style></head><body>${buildPrintHTML(fields, parsedDesc, itemRows)}</body></html>`);
+        win.document.close();
+        win.onload = () => { win.focus(); win.print(); };
+    }
+
+    // ─── BUTTON INJECTION ───────────────────────────────────────────────────
+    function addPrintButton() {
+        if (document.getElementById('lcs-print-btn')) return true;
+        const heading = Array.from(document.querySelectorAll('h2')).find(h => h.textContent.trim() === 'Edit Documentation');
+        if (!heading) return false;
+
+        const btn = document.createElement('button');
+        btn.id = 'lcs-print-btn';
+        btn.type = 'button';
+        btn.className = 'btn btn-default';
+        btn.style.cssText = 'margin-left:12px;';
+        btn.textContent = '🖨 Print Library Control Sheet';
+        btn.addEventListener('click', () => {
+            btn.disabled = true;
+            printLibraryControlSheet().finally(() => { btn.disabled = false; });
+        });
+
+        heading.appendChild(btn);
+        return true;
+    }
+
+    const observer = new MutationObserver(() => addPrintButton());
+    observer.observe(document.body, { childList: true, subtree: true });
+    addPrintButton();
+
+})();
