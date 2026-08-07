@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         ALL - Library Control Sheet Print
+// @name         ALL---Library Control Sheet Print
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  Adds a Print button to the Documentation Edit page that renders a Library Control Sheet from the form fields, description text, and item list.
