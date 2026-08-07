@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALL---Library Control Sheet Print
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Adds a Print button to the Documentation Edit page that renders a Library Control Sheet from the form fields, description text, and item list.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Catalog/Documentations/EditDocumentation*
