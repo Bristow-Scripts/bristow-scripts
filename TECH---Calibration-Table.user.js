@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      7.2
+// @version      7.3
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Calibration-Table.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Calibration-Table.user.js
+// @tag          Tech
 // ==/UserScript==
 
 (function () {
@@ -1314,7 +1315,7 @@
                 unitInp.setAttribute('list', unitDatalistId);
                 const datalist = document.createElement('datalist');
                 datalist.id = unitDatalistId;
-                ['PSI', 'inHg Vacuum', 'inHg Pressure', 'inWC Vacuum', 'inWC Pressure', 'LBS', 'Grams', 'KG'].forEach(u => {
+                ['PSI', 'inHg Vacuum', 'inHg Pressure', 'inWC Vacuum', 'inWC Pressure', 'LBS', 'FT-LBS', 'in-LBS', 'Grams', 'KG'].forEach(u => {
                     const opt = document.createElement('option');
                     opt.value = u;
                     datalist.appendChild(opt);
