@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         SH - AeroTools Manager
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      3.1
 // @description  Clear filters, Print Tool Report, Bulk Edit, Print Label for AeroTools
 // @match        https://bristow-app.azurewebsites.net/Catalog/AeroTools*
+// @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---AeroTools-Manager.user.js
+// @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---AeroTools-Manager.user.js
 // @grant        none
 // ==/UserScript==
 
@@ -450,6 +452,7 @@
 
     function initEditPage() {
         injectPrintLabelButton();
+        injectPrintCalFormButton();
         var ta = document.getElementById('Tool_Description');
         if (ta) {
             ta.style.height = 'auto';
@@ -477,6 +480,144 @@
         labelBtn.addEventListener('click', printLabel);
 
         saveBtn.parentNode.insertBefore(labelBtn, saveBtn.nextSibling);
+    }
+
+    function injectPrintCalFormButton() {
+        if (document.getElementById('print-calform-btn')) return;
+        var saveBtn = document.querySelector('button[type="submit"].btn-success')
+                   || document.querySelector('button.btn-success')
+                   || document.querySelector('input[type="submit"].btn-success');
+        if (!saveBtn) return;
+
+        var calBtn = document.createElement('button');
+        calBtn.type = 'button';
+        calBtn.id = 'print-calform-btn';
+        calBtn.className = 'btn btn-warning';
+        calBtn.style.cssText = 'margin-left:8px;';
+        calBtn.innerHTML = '<span class="glyphicon glyphicon-print" aria-hidden="true"></span> Print Shop Cal Form';
+        calBtn.addEventListener('click', printCalForm);
+
+        var labelBtn = document.getElementById('print-label-btn');
+        if (labelBtn) {
+            labelBtn.parentNode.insertBefore(calBtn, labelBtn.nextSibling);
+        } else {
+            saveBtn.parentNode.insertBefore(calBtn, saveBtn.nextSibling);
+        }
+    }
+
+    function printCalForm() {
+        var toolNumber = document.getElementById('Tool_ToolNumber').value || '';
+        var altToolNumber = document.getElementById('Tool_AltToolNumber').value || '';
+        var serialNumber = document.getElementById('Tool_SerialNumber').value || '';
+        var manufacturer = document.getElementById('Tool_Manufacturer').value || '';
+        var description = document.getElementById('Tool_Description').value || '';
+        var calDueDate = document.getElementById('Tool_CalDueDate').value || '';
+
+        var catMatch = description.match(/Category[:\s]+([^\n]+)/i);
+        var category = catMatch ? catMatch[1].trim() : '';
+
+        var locMatch = description.match(/Location[:\s]+([^\n]+)/i);
+        var location = locMatch ? locMatch[1].trim() : '';
+
+        var firstLine = description.split('\n')[0] || '';
+
+        var h = '<html><head><title>Shop Cal Form</title><style>';
+        h += '@page { size: letter; margin: 5mm; }';
+        h += 'body { font-family: Arial, sans-serif; font-size: 8pt; margin: 0; padding: 5mm; }';
+        h += '.title { text-align: center; font-family: "Times New Roman", Times, serif; font-size: 17pt; font-weight: bold; margin: 0 0 2px 0; height: 0.80cm; display: flex; align-items: center; justify-content: center; }';
+        h += '.outer { border: 2px solid #000; padding: 1px; }';
+        h += 'table { width: 100%; border-collapse: collapse; }';
+        h += 'td { border: 1px solid #000; padding: 2px 4px; font-size: 8pt; vertical-align: middle; height: 20px; box-sizing: border-box; }';
+        h += 'label { white-space: nowrap; font-weight: bold; font-size: 6.3pt; }';
+        h += '.val { font-size: 8pt; }';
+        h += '.data-header td { text-align: center; font-weight: bold; font-size: 8pt; border-top: 2px solid #000; height: 22px; }';
+        h += '.data-grid td { height: 0.64cm; }';
+        h += '.data-grid:last-child td { height: 0.69cm; }';
+        h += '.as-found td:nth-child(n+4) { border-left: none !important; border-right: none !important; }';
+        h += '.as-found td:nth-child(4) { border-left: 1px solid #000 !important; }';
+        h += '.as-found td:last-child { border-right: 1px solid #000 !important; }';
+        h += '.footer { position: relative; margin-top: 2px; padding: 0 2px; font-size: 7pt; height: 22px; }';
+        h += '.footer-left { position: absolute; left: 50%; transform: translateX(-50%); }';
+        h += '.footer-right { position: absolute; right: 0; top: 0; text-align: center; line-height: 1.2; }';
+        h += '@media print { body { padding: 4mm; } }';
+        h += '</style></head><body>';
+        h += '<div class="title">Shop Cal Form</div>';
+
+        h += '<div class="outer">';
+
+        var COLS = '<col style="width:11.85%"><col style="width:8.46%"><col style="width:11.85%"><col style="width:15.36%"><col style="width:8.46%"><col style="width:11.85%"><col style="width:11.85%"><col style="width:8.46%"><col style="width:11.85%">';
+
+        h += '<table style="width:100%;">';
+        h += COLS;
+
+        h += '<tr>';
+        h += '<td><label>TOOL NUMBER:</label></td><td colspan="2"><span class="val">' + toolNumber + '</span></td>';
+        h += '<td><label>DATE:</label></td><td colspan="2"></td>';
+        h += '<td><label>TIME:</label></td><td colspan="2"></td>';
+        h += '</tr>';
+
+        h += '<tr>';
+        h += '<td><label>DESCRIPTION:</label></td><td colspan="2"><span class="val">' + firstLine + '</span></td>';
+        h += '<td><label>TECH:</label></td><td colspan="2"></td>';
+        h += '<td><label>WORK LEVEL:</label></td><td colspan="2"></td>';
+        h += '</tr>';
+
+        h += '<tr>';
+        h += '<td><label>PART NUMBER:</label></td><td colspan="2"><span class="val">' + altToolNumber + '</span></td>';
+        h += '<td><label>CALIBRATION TOOL:</label></td><td colspan="2"></td>';
+        h += '<td><label>MIN CAL RATIO:</label></td><td colspan="2"></td>';
+        h += '</tr>';
+
+        h += '<tr>';
+        h += '<td><label>SERIAL NUMBER:</label></td><td colspan="2"><span class="val">' + serialNumber + '</span></td>';
+        h += '<td><label>CAL PROCEDURE:</label></td><td colspan="5"></td>';
+        h += '</tr>';
+
+        h += '<tr class="as-found">';
+        h += '<td><label>MANUFACTURE:</label></td><td colspan="2"><span class="val">' + manufacturer + '</span></td>';
+        h += '<td><label>AS FOUND:</label></td>';
+        h += '<td style="text-align:center;border-right:none !important;">IN CAL</td>';
+        h += '<td style="text-align:center;border-left:none !important;border-right:none !important;">&lt;1TB</td>';
+        h += '<td style="text-align:center;border-left:none !important;border-right:none !important;">&gt;1&lt;2TB</td>';
+        h += '<td style="text-align:center;border-left:none !important;border-right:none !important;">&gt;2&lt;4TB</td>';
+        h += '<td style="text-align:center;border-left:none !important;">&gt;4T</td>';
+        h += '</tr>';
+
+        h += '<tr>';
+        h += '<td><label>CATAGORY:</label></td><td colspan="2"><span class="val">' + category + '</span></td>';
+        h += '<td><label>TOOL DUE CALC:</label></td><td colspan="5"></td>';
+        h += '</tr>';
+
+        h += '<tr>';
+        h += '<td><label>LOCATION:</label></td><td colspan="2"><span class="val">' + location + '</span></td>';
+        h += '<td><label>SCAN FILE NAME:</label></td><td colspan="5"></td>';
+        h += '</tr>';
+
+        h += '</table>';
+
+        h += '<table style="width:100%; margin-top:8px;">';
+        h += '<col style="width:11.11%"><col style="width:11.11%"><col style="width:11.11%"><col style="width:11.11%"><col style="width:11.11%"><col style="width:11.11%"><col style="width:11.11%"><col style="width:11.11%"><col style="width:11.11%">';
+
+        h += '<tr class="data-header"><td colspan="9">CALIBRATION DATA</td></tr>';
+        for (var i = 0; i < 30; i++) {
+            h += '<tr class="data-grid"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>';
+        }
+
+        h += '</table>';
+        h += '</div>';
+
+        h += '<div style="height:6px;"></div>';
+
+        h += '<div class="footer">';
+        h += '<span class="footer-left">Form 26 Page 1 of 1</span>';
+        h += '<div class="footer-right">March 2026<br>Rev3</div>';
+        h += '</div>';
+        h += '</body></html>';
+
+        var w = window.open('', '_blank', 'width=900,height=800');
+        w.document.write(h);
+        w.document.close();
+        setTimeout(function () { w.print(); }, 500);
     }
 
     function printLabel() {
@@ -513,19 +654,22 @@
         html += 'body { margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; }';
         html += '.label { width: 55mm; height: 30mm; border: 2px solid #000; box-sizing: border-box; padding: 1mm 1.5mm; }';
         html += '.header { border-bottom: 2px solid #000; padding-bottom: 0.5mm; margin-bottom: 0.5mm; display: flex; justify-content: space-between; align-items: baseline; }';
-        html += '.header-title { font-size: 10px; font-weight: bold; }';
-        html += '.header-number { font-size: 12px; font-weight: bold; }';
+        html += '.header-title { font-size: 11px; font-weight: bold; }';
+        html += '.header-number { font-size: 13px; font-weight: bold; }';
         html += '.body { display: flex; height: calc(100% - 6mm); }';
         html += '.data { flex: 1; padding-right: 1mm; }';
-        html += '.cal-due { font-size: 8px; font-weight: bold; }';
-        html += '.cal-date { font-size: 10px; font-weight: bold; }';
-        html += '.detail { font-size: 8px; line-height: 1.3; }';
+        html += '.cal-due { font-size: 9px; }';
+        html += '.cal-date { font-size: 11px; font-weight: bold; }';
+        html += '.detail { font-size: 9px; line-height: 1.3; }';
+        html += '.detail-row { display: flex; gap: 4mm; }';
+        html += '.detail-label { font-weight: normal; }';
         html += '.detail-value { font-weight: bold; }';
-        html += '.desc { font-size: 8px; text-align: center; margin-top: 1mm; }';
-        html += '.owner { font-size: 8px; margin-top: auto; }';
-        html += '.owner-label { font-weight: bold; }';
+        html += '.desc { font-size: 9px; font-weight: bold; text-align: left; margin-top: 0mm; }';
+        html += '.owner { font-size: 9px; margin-top: auto; }';
+        html += '.owner-label { font-weight: normal; }';
+        html += '.owner-value { font-weight: bold; }';
         html += '.right { display: flex; }';
-        html += '.cat-badge { display: flex; align-items: center; justify-content: center; width: 8mm; min-width: 8mm; height: 8mm; border: 2px solid #000; font-size: 14px; font-weight: bold; }';
+        html += '.cat-badge { display: flex; align-items: center; justify-content: center; width: 6mm; min-width: 6mm; height: 6mm; border: 2px solid #000; font-size: 12px; font-weight: bold; }';
         html += '.stamp-area { width: 12mm; min-width: 12mm; flex: 1; border: 2px solid #000; }';
         html += '@media print { body { margin: 0; } }';
         html += '</style></head><body>';
@@ -536,21 +680,21 @@
         html += '</div>';
         html += '<div class="body">';
         html += '<div class="data">';
-        html += '<div class="cal-due">Calibration Due:</div>';
+        html += '<div class="cal-due"><span class="detail-label">Calibration Due:</span></div>';
         html += '<div class="cal-date">' + formattedDate + '</div>';
         if (altToolNumber) {
-            html += '<div class="detail">P/N: <span class="detail-value">' + altToolNumber + '</span></div>';
+            html += '<div class="detail"><span class="detail-label">P/N: </span><span class="detail-value">' + altToolNumber + '</span></div>';
         }
         if (serialNumber) {
-            html += '<div class="detail">S/N: <span class="detail-value">' + serialNumber + '</span></div>';
+            html += '<div class="detail"><span class="detail-label">S/N: </span><span class="detail-value">' + serialNumber + '</span></div>';
         }
         if (location) {
-            html += '<div class="detail">LOC: <span class="detail-value">' + location + '</span></div>';
+            html += '<div class="detail"><span class="detail-label">LOC: </span><span class="detail-value">' + location + '</span></div>';
         }
         if (firstLine) {
             html += '<div class="desc">' + firstLine + '</div>';
         }
-        html += '<div class="owner"><span class="owner-label">OWNER: </span>' + (owner || 'N/A') + '</div>';
+        html += '<div class="owner"><span class="owner-label">OWNER: </span><span class="owner-value">' + (owner || 'N/A') + '</span></div>';
         html += '</div>';
         html += '<div class="right">';
         if (catLetter) {
