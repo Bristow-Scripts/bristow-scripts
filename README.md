@@ -54,6 +54,7 @@ Auto-updating userscripts for the Bristow app.
 |--------|-------------|
 | [Auto Add Labor & Process W/ WO Desc](SH---Auto-Add-Labor-Process-W-WO-Desc.user.js) | Automatically fills the standard Work Order Description template, adds the Labour service line, sets it to Job type, and processes it in one step. |
 | [Orders Grid Filter Optimizer](SH---Orders-Grid-Filter-Optimizer.user.js) | Makes the Customer Orders list much faster by loading all orders locally. Adds WIP filter, Clear Filters, Print List, and Order Status dropdown. Completed and Cancelled orders shown by default. |
+| [AeroTools Manager](SH---AeroTools-Manager.user.js) | Clear filters, Print Tool Report (45-day cal due + In Service), Bulk Edit descriptions, Print Label (57mm×32mm), and Print Shop Cal Form for the AeroTools page. Includes In Service toggle and date formatting. |
 
 ---
 
