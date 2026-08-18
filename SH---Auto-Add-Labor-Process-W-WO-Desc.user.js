@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         SH - Process W/ WO Desc.
 // @namespace    http://tampermonkey.net/
-// @version      3.0
+// @version      3.1
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Auto-Add-Labor-Process-W-WO-Desc.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Auto-Add-Labor-Process-W-WO-Desc.user.js
 // @description  Automatically fills work order description
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
+// @tag          SH
 // ==/UserScript==
 
 (function () {
