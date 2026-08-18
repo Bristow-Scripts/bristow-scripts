@@ -6,8 +6,8 @@
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
 // @grant        none
-// @updateURL    https://bristow-scripts.github.io/bristow-scripts/SHIPPING---CoC-F-Helper.meta.js
-// @downloadURL  https://bristow-scripts.github.io/bristow-scripts/SHIPPING---CoC-F-Helper.user.js
+// @updateURL    https://bristow-scripts.github.io/bristow-scripts/SH---CoC-F-Helper.meta.js
+// @downloadURL  https://bristow-scripts.github.io/bristow-scripts/SH---CoC-F-Helper.user.js
 // @require      https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Shared-Core.user.js
 // @tag          SH
 // ==/UserScript==
