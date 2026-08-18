@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         ALL - Floating Text Blaze Box
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  Adds a floating textbox for Text Blaze — observer disconnects after adding.
 // @match        https://bristow-app.azurewebsites.net/*
 // @grant        none
 // @run-at       document-end
+// @tag          ALL
 // ==/UserScript==
 (function() {
   var url = window.location.href;
