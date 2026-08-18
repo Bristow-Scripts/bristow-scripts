@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - CoC-F Helper
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      2.9
+// @version      3.0
 // @description  Report guards for shipping: CoC auto-fills/stamps dates; CoC/Sub CoC/Form 1 grayed by Work Performed & Cost Center (dropdown); CoC & Form 1 blocked until a manual is Selected and not expired; Form 1 adds CARs 571 remarks with Unit Certified to prompt, Bell Helicopters REV, blocks on Part No./Description mismatch and missing manual Revision Info.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -1091,10 +1091,43 @@
             });
     }
 
-    // file name "619.pdf" / "176.docx" -> doc name "619"/"176" -> candidate records (may be several).
+    // Manuals are identified by a number: 1-4 digits, with no letters/spaces/special
+    // chars in it. Files may carry extra text around the number (e.g. the file is
+    // "3742_Rev1.pdf" but the catalog Name is "3742"), so we pull the first 1-4
+    // digit group out of the file name and look that up - falling back to the
+    // exact base name, then the base name minus a revision suffix ("_Rev1"...).
     function docRecordsForFile(fileName) {
-        var base = String(fileName || '').replace(/\.(?:pdf|docx?|xlsx?|txt|csv)$/i, '').trim().toUpperCase();
-        return base ? (catalogByName[base] || []) : [];
+        var base = String(fileName || '').replace(/\.(?:pdf|docx?|xlsx?|txt|csv)$/i, '').trim();
+        var names = [];
+
+        var numMatch = /(?:^|[^0-9])([0-9]{1,4})(?:[^0-9]|$)/.exec(base);
+        if (numMatch) {
+            var num = numMatch[1];
+            names.push(num);
+            var noLeadZeros = String(parseInt(num, 10));
+            if (noLeadZeros !== num) names.push(noLeadZeros);
+        }
+
+        names.push(base);
+        var stripped = base
+            .replace(/[_-]\s*rev\s*\d+$/i, '')
+            .replace(/\s+rev\s+\d+$/i, '')
+            .replace(/[_-]\s*r\d+$/i, '');
+        if (stripped && stripped !== base) names.push(stripped);
+
+        var seen = {};
+        var out = [];
+        for (var i = 0; i < names.length; i++) {
+            var key = names[i].toUpperCase();
+            if (!key || !catalogByName[key]) continue;
+            for (var j = 0; j < catalogByName[key].length; j++) {
+                var id = catalogByName[key][j].Id;
+                if (id && seen[id]) continue;
+                if (id) seen[id] = true;
+                out.push(catalogByName[key][j]);
+            }
+        }
+        return out;
     }
 
     // Read the file's grid row details (Location, DocType text, DocStatus text)
