@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         LIB - AeroTools Manager
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Clear filters, Print Tool Report, Bulk Edit, Print Label for AeroTools
 // @match        https://bristow-app.azurewebsites.net/Catalog/AeroTools*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---AeroTools-Manager.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---AeroTools-Manager.user.js
 // @grant        none
+// @tag          LIB
 // ==/UserScript==
 
 (function () {
