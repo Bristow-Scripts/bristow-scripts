@@ -56,7 +56,7 @@ Auto-updating userscripts for the Bristow app.
 
 | Script | Description |
 |--------|-------------|
-| [AeroTools Manager](LIB---AeroTools-Manager.user.js) | Clear filters, Print Tool Report (45-day cal due), Bulk Edit descriptions, Print Label (57mm×32mm), and Print Shop Cal Form for the AeroTools page. Includes In Service toggle and date formatting. |
+| [AeroTools - Tool Report / Tool Label / Cal Form](LIB---AeroTools-Tool-Report-Tool-Label-Cal-Form.user.js) | Clear filters, Print Tool Report (45-day cal due), Bulk Edit tool descriptions, Print Label (57mm×32mm), and Print Shop Cal Form for the AeroTools page. Includes an In Service toggle and DD-MMM-YYYY date formatting. |
 | [Documents - Manual Review / Library Control / Grid Optimizer](LIB---Documents-Manual-Review-Library-Control-Grid-Optimizer.user.js) | Prints a Manual Review Report (45-day window) and a Library Control Sheet from the Documentations edit page, plus cached part-number search and grid tweaks. Adds Clear Filters, Print, Refresh Data buttons, and a save guard that blocks saving when Revision Info is empty. |
 
 ---
