@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         TECH - Auto Grow Work Order Description
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      2.2
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Grow-Work-Order-Description.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Grow-Work-Order-Description.user.js
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
+// @tag          TECH
 // @run-at       document-end
 // ==/UserScript==
 (function () {
