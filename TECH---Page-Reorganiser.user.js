@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      6.8
+// @version      6.9
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -9,6 +9,7 @@
 // @updateURL    https://bristow-scripts.github.io/bristow-scripts/TECH---Page-Reorganiser.meta.js
 // @downloadURL  https://bristow-scripts.github.io/bristow-scripts/TECH---Page-Reorganiser.user.js
 // @require      https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Shared-Core.user.js
+// @tag          TECH
 // ==/UserScript==
 
 (function () {
