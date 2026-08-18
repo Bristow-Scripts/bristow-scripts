@@ -50,6 +50,7 @@ Auto-updating userscripts for the Bristow app.
 |--------|-------------|
 | [Auto Add Labor & Process W/ WO Desc](SH---Auto-Add-Labor-Process-W-WO-Desc.user.js) | Automatically fills in the standard Work Order Description template. |
 | [Orders Grid Filter Optimizer](SH---Orders-Grid-Filter-Optimizer.user.js) | Makes the Customer Orders list much faster by loading all orders locally. Adds WIP filter, Clear Filters, Print List, and Order Status dropdown. Completed and Cancelled orders shown by default. |
+| [CoC-F Helper](SH---CoC-F-Helper.user.js) | Report guards for shipping: CoC auto-fills/stamps Calibration and Due dates; CoC/Sub CoC/Form 1 grayed by Work Performed & Cost Center; CoC & Form 1 blocked until a manual is Selected and not expired; Form 1 adds CARs 571 remarks with Unit Certified to prompt, Bell Helicopters REV, and blocks on Part No./Description mismatch or missing manual Revision Info. |
 
 ### LIB — Library / QC
 
