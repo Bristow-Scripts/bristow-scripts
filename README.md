@@ -18,9 +18,8 @@ Auto-updating userscripts for the Bristow app.
 | Script | Description |
 |--------|-------------|
 | [Floating Text Blaze Box](ALL---Floating-Text-Blaze-Box.user.js) | Adds a small floating text box in the toolbar for pasting Text Blaze macros. Type your shortcut and let Text Blaze expand it. No auto-update. |
-| [Set Qty Default to 1](ALL---Set-Qty-Default-to-1.user.js) | When adding parts or services, quantity defaults to 1 instead of 0 — saves a click every time. |
+| [Set Qty Default to 1](ALL---Set-Qty-Default-to-1.user.js) | When adding parts or services, quantity defaults to 1 instead of 0. |
 | [Manuals Remember State](ALL---Manuals-Remember-State.user.js) | The Manuals section remembers whether you left it open or closed, even after saving or editing the order. |
-| [Library Control Sheet Print](ALL---Library-Control-Sheet-Print.user.js) | Adds a Print button to the Documentation Edit page that renders a Library Control Sheet from the form fields, description text, and item list. |
 
 ### TECH — Technicians
 
@@ -28,33 +27,36 @@ Auto-updating userscripts for the Bristow app.
 |--------|-------------|
 | [Auto Add Labor + Tech Time Panel](TECH---Auto-Add-Labor-Tech-Time-Panel.user.js) | Automatically adds and processes the Labour service line on every work order. Also adds a floating panel to log tech hours directly from the order page without opening the Job. |
 | [Auto Grow Work Order Description](TECH---Auto-Grow-Work-Order-Description.user.js) | The Work Order Description text box grows automatically as you type so you can always see the full text. |
-| [Calibration Table](TECH---Calibration-Table.user.js) | Turns the Calibration Data fields into an editable spreadsheet-style table with automatic % error calculation. Can also pull torque test readings directly from a connected Norbar tester over USB — click a cell, pull the wrench, and the value fills in automatically. |
-| [Force Contact Section Collapsed](TECH---Force-Contact-Section-Collapsed.user.js) | Keeps the Contact section collapsed by default. Techs rarely need it — this keeps it out of the way. |
-| [Hide Totals Footer](TECH---Hide-Totals-Footer.user.js) | Hides the cost totals bar at the bottom of the order page. Techs don't set pricing so this removes the distraction. |
-| [Orders Grid Filter Optimizer](TECH---Orders-Grid-Filter-Optimizer.user.js) | Makes the Customer Orders list much faster by loading all orders locally. Adds WIP filter, Clear Filters, and Order Status dropdown. Completed and Cancelled orders are hidden by default. |
+| [Calibration Table](TECH---Calibration-Table.user.js) | Turns the Calibration Data fields into an editable spreadsheet-style table with automatic % error calculation. Can also pull torque test readings directly from a connected Norbar tester over USB. |
+| [Hide Totals Footer](TECH---Hide-Totals-Footer.user.js) | Hides the cost totals bar at the bottom of the order page. |
 | [Page Reorganiser](TECH---Page-Reorganiser.user.js) | Tidies up the order/job edit page — hides irrelevant buttons, reports, and sections, freezes locked fields to a clean read-only display, hides pricing columns on order lines, and adds a Tech Mode toggle plus inline per-line notes. |
 | [Parts Preloader](TECH---Parts-Preloader.user.js) | Loads and caches the full parts list so searching for parts is instant. Refreshes once per day automatically — use the Refresh Parts button to force an update. |
-| [Time Expanded Section Trimmed](TECH---Time-Expanded-Section-Trimmed.user.js) | Adds a Time Expanded section below the parts list showing hours logged on the job. No need to open the Job separately. Clutter removed — shows service lines only. |
 | [Uppercase Forced Work Order Description](TECH---Uppercase-Forced-work-order-description.user.js) | Automatically converts the Work Order Description, Customer Snag, and Internal Snag to uppercase when you save. |
 
-### FE — Front End / Estimators
+### FE — Front End
 
 | Script | Description |
 |--------|-------------|
-| [Force Contact Section Expanded](FE---Force-Contact-Section-Expanded.user.js) | Keeps the Contact section expanded by default. Front end staff need this visible to verify contact details. |
-| [Manuals Section Collapsed Default](FE---Manuals-Section-Collapsed-Default.user.js) | Collapses the Manuals section by default to keep the order page tidier for front end staff. |
+| [Force Contact Section Expanded](FE---Force-Contact-Section-Expanded.user.js) | Keeps the Contact section expanded by default on the order page. |
+| [Manuals Section Collapsed Default](FE---Manuals-Section-Collapsed-Default.user.js) | Collapses the Manuals section by default. |
 | [Second Save Button](FE---Second-Save-Button.user.js) | Adds a second Save button fixed to the screen for saving order line items — useful when scrolled far down. No auto-update. |
 | [Time Expanded Section Full Version](FE---Time-Expanded-Section-full-version.user.js) | Adds a Time Expanded section below the parts list with the full job view embedded — shows all service lines and hours logged. |
 | [Parts Preloader](FE---Parts-Preloader.user.js) | Loads and caches the full parts list so searching for parts is instant. Refreshes every hour automatically — use the Refresh Parts button to force an update. |
 | [Net 0 Customer Warning](FE---Net-0-Customer-Warning.user.js) | Fetches the customer's payment terms when you open a work order. If their terms are Net 0, the order info panel turns red and a warning badge appears next to the company name. |
 
-### SH — Shop / Shipping
+### SH — Shipping
 
 | Script | Description |
 |--------|-------------|
-| [Auto Add Labor & Process W/ WO Desc](SH---Auto-Add-Labor-Process-W-WO-Desc.user.js) | Automatically fills the standard Work Order Description template, adds the Labour service line, sets it to Job type, and processes it in one step. |
+| [Auto Add Labor & Process W/ WO Desc](SH---Auto-Add-Labor-Process-W-WO-Desc.user.js) | Automatically fills in the standard Work Order Description template. |
 | [Orders Grid Filter Optimizer](SH---Orders-Grid-Filter-Optimizer.user.js) | Makes the Customer Orders list much faster by loading all orders locally. Adds WIP filter, Clear Filters, Print List, and Order Status dropdown. Completed and Cancelled orders shown by default. |
-| [AeroTools Manager](SH---AeroTools-Manager.user.js) | Clear filters, Print Tool Report (45-day cal due + In Service), Bulk Edit descriptions, Print Label (57mm×32mm), and Print Shop Cal Form for the AeroTools page. Includes In Service toggle and date formatting. |
+
+### LIB — Library / QC
+
+| Script | Description |
+|--------|-------------|
+| [AeroTools Manager](LIB---AeroTools-Manager.user.js) | Clear filters, Print Tool Report (45-day cal due), Bulk Edit descriptions, Print Label (57mm×32mm), and Print Shop Cal Form for the AeroTools page. Includes In Service toggle and date formatting. |
+| [Document / Library Control](LIB---Document-Library-Control.user.js) | Adds a Print button to the Documentation Edit page that renders a Library Control Sheet from the form fields, description text, and item list. |
 
 ---
 
