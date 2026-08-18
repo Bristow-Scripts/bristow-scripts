@@ -60,9 +60,11 @@
       gap: 12px;
     }
 
-    .role-header.all    { background: #2c3e50; }
-    .role-header.tech   { background: #1a6e40; }
-    .role-header.fesh   { background: #7b2d8b; }
+    .role-header.all  { background: #2c3e50; }
+    .role-header.tech { background: #1a6e40; }
+    .role-header.fe   { background: #7b2d8b; }
+    .role-header.sh   { background: #b45309; }
+    .role-header.lib  { background: #0f766e; }
 
     .role-header h2 {
       color: #fff;
@@ -142,7 +144,9 @@
 
     .all  .install-btn { background: #2c3e50; }
     .tech .install-btn { background: #1a6e40; }
-    .fesh .install-btn { background: #7b2d8b; }
+    .fe   .install-btn { background: #7b2d8b; }
+    .sh   .install-btn { background: #b45309; }
+    .lib  .install-btn { background: #0f766e; }
 
     footer {
       text-align: center;
@@ -183,7 +187,7 @@
     <div class="script-item">
       <div class="script-info">
         <strong>Set Qty Default to 1</strong>
-        <span>When adding parts or services to a work order, the quantity defaults to 1 instead of 0 — saves a click every time.</span>
+        <span>When adding parts or services to a work order, the quantity defaults to 1 instead of 0.</span>
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Set-Qty-Default-to-1.user.js">▶ Install</a>
     </div>
@@ -193,13 +197,6 @@
         <span>The Manuals section remembers whether you left it open or closed. Stays collapsed if you closed it last time, even after saving or editing.</span>
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Manuals-Remember-State.user.js">▶ Install</a>
-    </div>
-    <div class="script-item">
-      <div class="script-info">
-        <strong>Library Control Sheet Print</strong>
-        <span>Adds a Print button to the Documentation Edit page that renders a Library Control Sheet from the form fields, description text, and item list.</span>
-      </div>
-      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Library-Control-Sheet-Print.user.js">▶ Install</a>
     </div>
   </div>
 </div>
@@ -231,30 +228,16 @@
     <div class="script-item">
       <div class="script-info">
         <strong>Calibration Table</strong>
-        <span>Turns the Calibration Data fields into an editable spreadsheet-style table with automatic % error calculation. Can also pull torque test readings directly from a connected Norbar tester over USB — click a cell, pull the wrench, and the value fills in automatically.</span>
+        <span>Turns the Calibration Data fields into an editable spreadsheet-style table with automatic % error calculation. Can also pull torque test readings directly from a connected Norbar tester over USB.</span>
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Calibration-Table.user.js">▶ Install</a>
     </div>
     <div class="script-item">
       <div class="script-info">
-        <strong>Force Contact Section Collapsed</strong>
-        <span>Keeps the Contact section collapsed by default on the order page. Techs rarely need it — this keeps it out of the way.</span>
-      </div>
-      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Force-Contact-Section-Collapsed.user.js">▶ Install</a>
-    </div>
-    <div class="script-item">
-      <div class="script-info">
         <strong>Hide Totals Footer</strong>
-        <span>Hides the cost totals bar at the bottom of the order page. Techs don't set pricing, so this removes the distraction.</span>
+        <span>Hides the cost totals bar at the bottom of the order page.</span>
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Hide-Totals-Footer.user.js">▶ Install</a>
-    </div>
-    <div class="script-item">
-      <div class="script-info">
-        <strong>Orders Grid Filter Optimizer</strong>
-        <span>Makes the Customer Orders list much faster by loading all orders locally. Adds WIP filter, Clear Filters, and Order Status dropdown. Completed and Cancelled orders are shown by default.</span>
-      </div>
-      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Orders-Grid-Filter-Optimizer.user.js">▶ Install</a>
     </div>
     <div class="script-item">
       <div class="script-info">
@@ -272,13 +255,6 @@
     </div>
     <div class="script-item">
       <div class="script-info">
-        <strong>Time Expanded Section Trimmed</strong>
-        <span>Adds a Time Expanded section directly below the parts list on the order page. Shows the job's service lines (hours logged) without needing to open the Job separately. Clutter removed.</span>
-      </div>
-      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Time-Expanded-Section-Trimmed.user.js">▶ Install</a>
-    </div>
-    <div class="script-item">
-      <div class="script-info">
         <strong>Uppercase Forced Work Order Description</strong>
         <span>Automatically converts the Work Order Description, Customer Snag, and Internal Snag to uppercase when you save. No need to type in caps.</span>
       </div>
@@ -287,30 +263,27 @@
   </div>
 </div>
 
-<!-- FE + SH combined -->
-<div class="role-section fesh">
-  <div class="role-header fesh">
-    <div class="role-icon">📋📦</div>
+<!-- FE -->
+<div class="role-section fe">
+  <div class="role-header fe">
+    <div class="role-icon">📋</div>
     <div>
-      <h2>FE / SH — Front End &amp; Shop</h2>
+      <h2>FE — Front End</h2>
       <p>Install ALL scripts above first</p>
     </div>
   </div>
   <div class="script-list">
-
-    <div class="subheading">FE — Front End / Estimators</div>
-
     <div class="script-item">
       <div class="script-info">
         <strong>Force Contact Section Expanded</strong>
-        <span>Keeps the Contact section expanded by default on the order page. Front end staff need this visible to verify contact details.</span>
+        <span>Keeps the Contact section expanded by default on the order page.</span>
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Force-Contact-Section-Expanded.user.js">▶ Install</a>
     </div>
     <div class="script-item">
       <div class="script-info">
         <strong>Manuals Section Collapsed Default</strong>
-        <span>Collapses the Manuals section by default. Front end staff rarely need to look at manuals, so this keeps the page tidier.</span>
+        <span>Collapses the Manuals section by default.</span>
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Manuals-Section-Collapsed-Default.user.js">▶ Install</a>
     </div>
@@ -342,13 +315,23 @@
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Net-0-Customer-Warning.user.js">▶ Install</a>
     </div>
+  </div>
+</div>
 
-    <div class="subheading">SH — Shop / Shipping</div>
-
+<!-- SH -->
+<div class="role-section sh">
+  <div class="role-header sh">
+    <div class="role-icon">📦</div>
+    <div>
+      <h2>SH — Shipping</h2>
+      <p>Install ALL scripts above first</p>
+    </div>
+  </div>
+  <div class="script-list">
     <div class="script-item">
       <div class="script-info">
         <strong>Auto Add Labor &amp; Process W/ WO Desc</strong>
-        <span>Automatically fills in the standard Work Order Description template, adds the Labour service line, sets it to Job type, and processes it — all in one step when you open the order.</span>
+        <span>Automatically fills in the standard Work Order Description template.</span>
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Auto-Add-Labor-Process-W-WO-Desc.user.js">▶ Install</a>
     </div>
@@ -366,14 +349,33 @@
       </div>
       <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js">▶ Install</a>
     </div>
+  </div>
+</div>
+
+<!-- LIB -->
+<div class="role-section lib">
+  <div class="role-header lib">
+    <div class="role-icon">📚</div>
+    <div>
+      <h2>LIB — Library / QC</h2>
+      <p>Optional scripts for library / QC staff</p>
+    </div>
+  </div>
+  <div class="script-list">
     <div class="script-item">
       <div class="script-info">
         <strong>AeroTools Manager</strong>
         <span>Clear filters, Print Tool Report (45-day cal due), Bulk Edit descriptions, Print Label (57mm×32mm), and Print Shop Cal Form for the AeroTools page. Includes In Service toggle and date formatting.</span>
       </div>
-      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---AeroTools-Manager.user.js">▶ Install</a>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---AeroTools-Manager.user.js">▶ Install</a>
     </div>
-
+    <div class="script-item">
+      <div class="script-info">
+        <strong>Document / Library Control</strong>
+        <span>Adds a Print button to the Documentation Edit page that renders a Library Control Sheet from the form fields, description text, and item list.</span>
+      </div>
+      <a class="install-btn" href="https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---Document-Library-Control.user.js">▶ Install</a>
+    </div>
   </div>
 </div>
 
