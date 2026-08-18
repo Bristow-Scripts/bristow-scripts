@@ -20,6 +20,7 @@ Auto-updating userscripts for the Bristow app.
 | [Floating Text Blaze Box](ALL---Floating-Text-Blaze-Box.user.js) | Adds a small floating text box in the toolbar for pasting Text Blaze macros. Type your shortcut and let Text Blaze expand it. No auto-update. |
 | [Set Qty Default to 1](ALL---Set-Qty-Default-to-1.user.js) | When adding parts or services, quantity defaults to 1 instead of 0. |
 | [Manuals Remember State](ALL---Manuals-Remember-State.user.js) | The Manuals section remembers whether you left it open or closed, even after saving or editing the order. |
+| [Uniform Date Format (DD-MMM-YYYY)](ALL---Uniform-Date-Format-DD-MMM-YYYY.user.js) | Reformats all visible dates on the page to DD-MMM-YYYY format, including Kendo datepickers and grid cells, keeping the format consistent as you pick dates. |
 
 ### TECH — Technicians
 
@@ -43,6 +44,7 @@ Auto-updating userscripts for the Bristow app.
 | [Time Expanded Section Full Version](FE---Time-Expanded-Section-full-version.user.js) | Adds a Time Expanded section below the parts list with the full job view embedded — shows all service lines and hours logged. |
 | [Parts Preloader](FE---Parts-Preloader.user.js) | Loads and caches the full parts list so searching for parts is instant. Refreshes every hour automatically — use the Refresh Parts button to force an update. |
 | [Net 0 Customer Warning](FE---Net-0-Customer-Warning.user.js) | Fetches the customer's payment terms when you open a work order. If their terms are Net 0, the order info panel turns red and a warning badge appears next to the company name. |
+| [Parts Creation Guard](FE---Parts-Creation-Guard.user.js) | Shows a note when the Airworthiness Directives tag is blank, and blocks Save when the Alternate Part Number is missing from the Description on the Part List edit page. |
 
 ### SH — Shipping
 
