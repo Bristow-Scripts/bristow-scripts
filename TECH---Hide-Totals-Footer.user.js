@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         TECH - Hide Totals Footer
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.7
 // @description  Hides totals section via CSS only
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @match        https://bristow-app.azurewebsites.net/Orders/Jobs/Edit*
 // @grant        none
+// @tag          TECH
 // ==/UserScript==
 
 (function () {
