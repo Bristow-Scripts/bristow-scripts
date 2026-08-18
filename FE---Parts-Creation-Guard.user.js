@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         FE - Parts Creation Guard
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      1.3
+// @version      1.4
 // @description  Shows a note when the Airworthiness Directives tag is blank; blocks Save when the Alternate Part Number is missing from the Description on the PartList Edit page
 // @match        https://bristow-app.azurewebsites.net/Catalog/Parts/PartList/Edit*
 // @noframes
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Parts-Creation-Guard.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Parts-Creation-Guard.user.js
-// @tag          LIB
+// @tag          FE
 // ==/UserScript==
 
 (function () {
