@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - CoC-F Helper
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      3.0
+// @version      3.1
 // @description  Report guards for shipping: CoC auto-fills/stamps dates; CoC/Sub CoC/Form 1 grayed by Work Performed & Cost Center (dropdown); CoC & Form 1 blocked until a manual is Selected and not expired; Form 1 adds CARs 571 remarks with Unit Certified to prompt, Bell Helicopters REV, blocks on Part No./Description mismatch and missing manual Revision Info.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -170,15 +170,19 @@
             sel.className = 'form-control';
             sel.id = 'shp-cost-center-select';
             var cur = (input.value || '').trim().toUpperCase();
-            var options = COST_CENTERS.slice();
-            if (cur && options.indexOf(cur) === -1) options.unshift(cur);
-            for (var i = 0; i < options.length; i++) {
+            var options = ['']; // blank option is the default
+            if (cur && COST_CENTERS.indexOf(cur) === -1) options.push(cur);
+            for (var i = 0; i < COST_CENTERS.length; i++) options.push(COST_CENTERS[i]);
+            for (var j = 0; j < options.length; j++) {
                 var opt = document.createElement('option');
-                opt.value = options[i];
-                opt.textContent = options[i];
+                opt.value = options[j];
+                opt.textContent = options[j] || 'Select Cost Center';
                 sel.appendChild(opt);
             }
-            sel.value = cur || options[0];
+            sel.value = cur || '';
+            // Keep the hidden input in sync so the app actually saves the visible
+            // selection (default included) without the user having to click it.
+            input.value = sel.value;
             sel.addEventListener('change', function () {
                 input.value = sel.value;
                 try { $(input).trigger('change'); } catch (e) {}
@@ -192,6 +196,7 @@
             var s = input._shpSelect;
             var cv = (input.value || '').trim().toUpperCase();
             if (cv && s.value !== cv) s.value = cv;
+            else if (!cv && s.value) input.value = s.value; // restore visible selection if app cleared it
             s.disabled = !!input.disabled || input.readOnly;
         }
     }
