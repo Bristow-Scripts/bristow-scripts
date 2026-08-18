@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         FE - Time Expanded Section full version
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Time-Expanded-Section-full-version.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Time-Expanded-Section-full-version.user.js
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
 // @run-at       document-end
+// @tag          FE
 // ==/UserScript==
 
 (function () {
