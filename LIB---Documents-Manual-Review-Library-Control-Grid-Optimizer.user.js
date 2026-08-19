@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - Documents - Manual Review Report / Library Control Sheet / Grid Optimizer
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      1.4
+// @version      1.5
 // @description  Print Manual Review Report + Library Control Sheet + cached part-number search + edit-page helpers for Documentations
 // @match        https://bristow-app.azurewebsites.net/Catalog/Documentations*
 // @noframes
@@ -815,59 +815,6 @@
         input.parentNode.replaceChild(select, input);
     }
 
-    function showEditWarning(msg) {
-        var el = document.getElementById('doc-edit-warning');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'doc-edit-warning';
-            el.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
-            el.innerHTML = '<div style="background:#fff;padding:24px;border-radius:8px;font-family:system-ui;font-size:14px;max-width:420px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.3);">' +
-                '<div style="font-size:32px;margin-bottom:8px;">\u26A0\uFE0F</div>' +
-                '<div id="doc-edit-warning-text" style="font-weight:600;color:#c0392b;margin-bottom:16px;"></div>' +
-                '<button id="doc-edit-warning-ok" style="padding:6px 20px;border:none;border-radius:5px;background:#c0392b;color:#fff;font-size:13px;cursor:pointer;">OK</button>' +
-                '</div>';
-            document.body.appendChild(el);
-            el.addEventListener('click', function (e) {
-                if (e.target === el || e.target.id === 'doc-edit-warning-ok') el.style.display = 'none';
-            });
-        }
-        document.getElementById('doc-edit-warning-text').textContent = msg;
-        el.style.display = 'flex';
-    }
-
-    function setupSaveGuard() {
-        var revInput = document.getElementById('Documentation_RevisionInfo');
-        if (!revInput) return;
-        var form = revInput.closest('form');
-        if (!form) return;
-        var saveBtn = form.querySelector('button[type="submit"], input[type="submit"]');
-        if (!saveBtn) return;
-
-        function blocked() {
-            if (revInput.value && revInput.value.trim() !== '') return false;
-            showEditWarning('Revision Info cannot be empty. Please enter a value before saving.');
-            revInput.focus();
-            revInput.style.borderColor = '#c0392b';
-            setTimeout(function () { revInput.style.borderColor = ''; }, 2500);
-            return true;
-        }
-
-        saveBtn.addEventListener('click', function (e) {
-            if (blocked()) {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }
-        });
-        form.addEventListener('submit', function (e) {
-            if (blocked()) {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }
-        });
-    }
-
     // ==================== INIT ====================
 
     function tryInit() {
@@ -894,7 +841,6 @@
 
     setTimeout(function () {
         setupEditPage();
-        setupSaveGuard();
     }, 300);
 })();
 
