@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - Documents - Manual Review Report / Library Control Sheet / Grid Optimizer
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      1.3
+// @version      1.4
 // @description  Print Manual Review Report + Library Control Sheet + cached part-number search + edit-page helpers for Documentations
 // @match        https://bristow-app.azurewebsites.net/Catalog/Documentations*
 // @noframes
@@ -470,7 +470,7 @@
     var DB_VERSION = 1;
     var STORE_NAME = 'docs';
     var CACHE_KEY = 'allDocs';
-    var CACHE_SCHEMA = 3;
+    var CACHE_SCHEMA = 4;
     var MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
     var _status = null;
@@ -582,6 +582,18 @@
             if (rec.RelatedItems && String(rec.RelatedItems).trim() !== '') hasRelated = true;
         }
         if (!hasRelated) return;
+
+        // Only trust a full dataset. A server-paged (or otherwise partial) view
+        // would cache just a few rows, and then applyRecords/protectFromWipe
+        // would pin the grid to only those rows on every later load.
+        var total = 0;
+        try { total = grid.dataSource.total() || 0; } catch (e) {}
+        if (total > 0 && plain.length < total) return;
+
+        // Never let a partial result shrink the working set. If this event only
+        // carries a few rows, keep the larger dataset we already have.
+        if (_allRecords && _allRecords.length > plain.length) return;
+
         plain.forEach(function (rec) {
             rec.RelatedItems = cleanRelatedItems(rec.RelatedItems);
         });
