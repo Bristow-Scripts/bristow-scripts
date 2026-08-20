@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - CoC-F Helper
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      3.1
+// @version      2.9
 // @description  Report guards for shipping: CoC auto-fills/stamps dates; CoC/Sub CoC/Form 1 grayed by Work Performed & Cost Center (dropdown); CoC & Form 1 blocked until a manual is Selected and not expired; Form 1 adds CARs 571 remarks with Unit Certified to prompt, Bell Helicopters REV, blocks on Part No./Description mismatch and missing manual Revision Info.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -883,13 +883,20 @@
         // statements below are almost certainly missing too - one check covers it.
         var missingCars = !remarksHas('Work done IAW CARs 571');
         if (costCenterHasAny(['CAP'])) {
-            // Encoder / reporting component
-            if (componentHasAny(['encod', 'report']) && missingCars) {
+            var comp = getComponentText().toUpperCase();
+            var hasEncod = /ENCOD/.test(comp);
+            var hasReport = /REPORT/.test(comp);
+            // Just an Encoder (not a Reporter) — Appendix F
+            // No certification needed for Appendix F alone
+            if (hasEncod && !hasReport && missingCars) {
+                lines.push('Work done IAW CARs 571 Appendix F');
+            }
+            // Encoder / reporting component (Reporter or both Encoder+Reporter) — Appendix B and F
+            if (((hasEncod && hasReport) || hasReport) && missingCars) {
                 lines.push('Work done IAW CARs 571 Appendix B and F');
                 form1CertNeeded = true;
             }
-            // Plain Altimeter (excluded for Radio/Encoding altimeters: contains RAD or ENCOD)
-            var comp = getComponentText().toUpperCase();
+            // Plain Altimeter (excluded for Radio/Encoding altimeters: contains RAD or ENCOD/REPORT)
             if (/ALTIMETER/.test(comp) && !/RAD/.test(comp) && !/ENCOD/.test(comp) && !/REPORT/.test(comp) &&
                 missingCars) {
                 lines.push('Work Done IAW CARs 571 Appendix B');
