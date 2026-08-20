@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - AeroTools - Tool Report / Tool Label / Cal Form
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      1.1
+// @version      1.3
 // @description  Clear filters, Print Tool Report, Bulk Edit, Print Label, Print Shop Cal Form for AeroTools
 // @match        https://bristow-app.azurewebsites.net/Catalog/AeroTools*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---AeroTools-Tool-Report-Tool-Label-Cal-Form.user.js
@@ -47,13 +47,30 @@
         var cells = document.querySelectorAll('#grid td[role="gridcell"]');
         cells.forEach(function (cell) {
             var text = cell.textContent.trim();
-            if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
-                var d = new Date(text);
-                if (!isNaN(d.getTime())) {
-                    cell.textContent = String(d.getDate()).padStart(2, '0') + '-' + months[d.getMonth()] + '-' + d.getFullYear();
+            var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
+            if (m) {
+                // Parse parts manually - new Date("YYYY-MM-DD") is UTC midnight,
+                // which shifts a day back in western timezones.
+                var y = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1, d = parseInt(m[3], 10);
+                if (mo >= 0 && mo < 12 && d >= 1 && d <= 31) {
+                    cell.textContent = String(d).padStart(2, '0') + '-' + months[mo] + '-' + y;
                 }
             }
         });
+    }
+
+    // Kendo caches transport responses on the DataSource. A stale/partial cache
+    // entry is what makes the grid load only one or a few rows and never more,
+    // so drop it (and disable caching) before every read/filter.
+    function clearDsCache(ds) {
+        if (!ds) return;
+        try { if (ds.options) ds.options.cache = false; } catch (e) {}
+        try {
+            if (ds.cache) {
+                if (typeof ds.cache.clear === 'function') ds.cache.clear();
+                else ds.cache = new kendo.data.Cache();
+            }
+        } catch (e) {}
     }
 
     function clearDefaultFilter() {
@@ -61,8 +78,20 @@
         if (!g) return;
         var ds = g.dataSource;
 
+        clearDsCache(ds);
+
         // Clear the filter entirely on the data source
         ds.filter([]);
+
+        // If the grid pages on the server, pull the whole dataset into one page
+        // so ds.data() (used by the Tool Report) always has every tool.
+        if (ds.options && ds.options.serverPaging) {
+            try {
+                var size = ds.total() > 0 ? ds.total() : 100000;
+                if (typeof ds.pageSize === 'function') ds.pageSize(size);
+                else ds.options.pageSize = size;
+            } catch (e) {}
+        }
 
         // Force a full re-read from the server (bypasses client cache)
         ds.read();
@@ -131,6 +160,7 @@
         var g = grid();
         if (!g) return;
         var ds = g.dataSource;
+        clearDsCache(ds);
         var currentFilter = ds.filter() || {};
         var filters = (currentFilter.filters || []).filter(function (x) { return x.field !== 'IsEnabled'; });
 
@@ -180,6 +210,7 @@
             var el = document.getElementById(id);
             if (el) el.value = '';
         });
+        try { clearDsCache(grid().dataSource); } catch (e) {}
         try { grid().dataSource.filter([]); } catch (e) {}
 
         // Reset toggle to "All"
@@ -323,9 +354,15 @@
         h += '</tr></thead><tbody>';
 
         data.forEach(function (r) {
-            var calDate = r.CalDueDate ? new Date(r.CalDueDate) : null;
             var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            var calStr = calDate ? String(calDate.getDate()).padStart(2, '0') + '-' + months[calDate.getMonth()] + '-' + calDate.getFullYear() : '';
+            var calStr = '';
+            var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(r.CalDueDate || '');
+            if (m) {
+                var mo = parseInt(m[2], 10) - 1;
+                if (mo >= 0 && mo < 12) {
+                    calStr = String(parseInt(m[3], 10)).padStart(2, '0') + '-' + months[mo] + '-' + m[1];
+                }
+            }
             var desc = (r.Description || '').replace(/\n/g, ' ');
 
             h += '<tr>';
