@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - Documents - Manual Review Report / Library Control Sheet / Grid Optimizer
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      1.5
+// @version      1.7
 // @description  Print Manual Review Report + Library Control Sheet + cached part-number search + edit-page helpers for Documentations
 // @match        https://bristow-app.azurewebsites.net/Catalog/Documentations*
 // @noframes
@@ -293,6 +293,10 @@
     }
 
     function printManualReviewReport() {
+        refreshDataThen(doPrintManualReviewReport);
+    }
+
+    function doPrintManualReviewReport() {
         var g = grid();
         if (!g) return;
         var ds = g.dataSource;
@@ -471,11 +475,12 @@
     var STORE_NAME = 'docs';
     var CACHE_KEY = 'allDocs';
     var CACHE_SCHEMA = 4;
-    var MAX_AGE_MS = 24 * 60 * 60 * 1000;
+    var MAX_AGE_MS = 8 * 60 * 60 * 1000;
 
     var _status = null;
     var _cacheHandler = null;
     var _allRecords = null;
+    var _suppressProtect = false;
     var SESSION_GUARD = 'bristow-wrelated-tried';
 
     function showStatus(msg, color) {
@@ -541,6 +546,40 @@
         showStatus('\u23F3 Refreshing data (clearing cache)...', '#555');
         dbDelete(CACHE_KEY, function () {
             location.reload();
+        });
+    }
+
+    // Re-fetches the full dataset from the server (bypassing the IndexedDB
+    // cache), re-caches it, then continues.
+    function refreshDataThen(done) {
+        var g = grid();
+        if (!g) { if (done) done(); return; }
+        showLoading(true, 'Refreshing data...');
+        var finished = false;
+        function finish() {
+            if (finished) return;
+            finished = true;
+            showLoading(false);
+            if (done) done();
+        }
+        dbDelete(CACHE_KEY, function () {
+            _allRecords = null;
+            interceptAndCache(g);
+            var onChange = function () {
+                g.dataSource.unbind('change', onChange);
+                setTimeout(finish, 400); // let the cache write land
+            };
+            g.dataSource.bind('change', onChange);
+            setTimeout(finish, 30000); // safety net if the read never lands
+            try {
+                g.dataSource.read();
+            } catch (e) {
+                var wRel = document.getElementById('wRelated');
+                if (wRel) {
+                    wRel.checked = true;
+                    try { window.$(wRel).trigger('change'); } catch (e2) {}
+                }
+            }
         });
     }
 
@@ -614,9 +653,13 @@
 
     function applyRecords(grid, records) {
         try {
+            // Intentional apply (including a zero-match filter result) - the
+            // wipe protector must not treat this empty grid as data loss.
+            _suppressProtect = true;
             grid.dataSource.transport.read = function (options) { options.success(records); };
             grid.dataSource.data(records);
         } catch (e) {}
+        setTimeout(function () { _suppressProtect = false; }, 0);
     }
 
     function injectFromCache(grid, records) {
@@ -639,6 +682,7 @@
     function protectFromWipe(grid, records) {
         if (!records || !records.length) return;
         var handler = function () {
+            if (_suppressProtect) return;
             if (gridHasRelatedData(grid)) return;
             try {
                 var f = grid.dataSource.filter();
