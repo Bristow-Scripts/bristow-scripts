@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - CoC-F Helper
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      2.9
+// @version      3.1
 // @description  Report guards for shipping: CoC auto-fills/stamps dates; CoC/Sub CoC/Form 1 grayed by Work Performed & Cost Center (dropdown); CoC & Form 1 blocked until a manual is Selected and not expired; Form 1 adds CARs 571 remarks with Unit Certified to prompt, Bell Helicopters REV, blocks on Part No./Description mismatch and missing manual Revision Info.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -23,6 +23,10 @@
     if (!isOrderPage && !isJobsPage) return;
 
     var DISABLED_CLASS = 'shp-coc-disabled';
+    // Marks a Form 1 link while the CARs 571 / certification flow is running.
+    // The QZ Tray direct-print script skips links carrying this class so the
+    // PDF is not printed before the flow finishes.
+    var FLOW_CLASS = 'shp-coc-flowing';
 
     // ── Reports under watch ──
     // flow: 'coc'    = date-stamping flow on click
@@ -808,9 +812,37 @@
         inp.focus();
     }
 
+    // Edit Info / Save swap the header DOM via AJAX, so an <a> captured at
+    // click time is usually detached by the time the flow finishes. Events on
+    // detached nodes never reach document-level listeners (QZ Tray), so the
+    // live anchor must be re-resolved by its href before handing off.
+    function findLiveLink(href) {
+        var links = document.querySelectorAll('a');
+        for (var i = 0; i < links.length; i++) {
+            if (links[i].getAttribute('href') === href) return links[i];
+        }
+        return null;
+    }
+
     function openReport(link) {
-        var href = link && link.getAttribute('href');
-        if (href) window.open(href, '_blank');
+        if (!link) return;
+        var href = link.getAttribute('href');
+        if (!href) return;
+        var live = findLiveLink(href) || link;
+        live.classList.remove(FLOW_CLASS);
+        // Flow finished - let the QZ Tray script direct-print this click (it
+        // matches the same PrintPDF links). The tagged synthetic click is
+        // preventDefault-ed by our own interceptor (no default navigation) and
+        // flagged by QZ when it takes it. Only when QZ is absent / declines do
+        // we open a tab ourselves - never both, so no duplicate tabs.
+        if (window.qz && live.isConnected && !live.classList.contains(DISABLED_CLASS)) {
+            var ev = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+            ev._shpFlowDispatch = true;
+            live.dispatchEvent(ev);
+            if (ev._shpQzTook) return;         // QZ Tray is direct-printing
+            if (ev.defaultPrevented) return;   // older QZ took it (it calls preventDefault)
+        }
+        window.open(href, '_blank');
     }
 
     // ── Edit-mode helpers ──
@@ -925,7 +957,20 @@
 
     function applySpecialRemarksAndOpen(link, lines) {
         var missing = lines.filter(function (l) { return !remarksHas(l); });
-        if (!missing.length) { openReport(link); return; }
+        if (!missing.length) {
+            // Remarks already exist - still check if certification was already provided
+            // If form1CertNeeded was true, the certification was already prompted earlier
+            // But to be safe, re-verify and re-prompt if needed
+            if (form1CertNeeded) {
+                showForm1CertPopup(function (cert) {
+                    if (cert) appendSpecialRemarks(lines.map(l => l + ' - Unit Certified to: ' + cert));
+                    openReport(link);
+                }, function () { openReport(link); });
+                return;
+            }
+            openReport(link);
+            return;
+        }
         enterEditMode(function () {
             var changed = appendSpecialRemarks(missing);
             if (changed) saveThenOpen(link);
@@ -953,6 +998,7 @@
     function handleForm1Flow(link) {
         refreshTargets();
         var lines = computeSpecialRemarkLines();
+        // Always check certification need - even if remarks already exist
         if (form1CertNeeded) {
             showForm1CertPopup(function (cert) {
                 var finalLines = lines;
@@ -968,21 +1014,39 @@
             });
             return;
         }
+        // Even when form1CertNeeded is false, still call applyForm1WithRemarks
+        // to ensure remarks are properly handled
         applyForm1WithRemarks(link, lines);
     }
 
     // ── Click routing ──
+    // This listener runs in the CAPTURE phase so it always wins over the QZ
+    // Tray direct-print script's capture listener: it registers earlier (QZ
+    // only registers after loading two CDN libraries) and calls
+    // stopImmediatePropagation() whenever it handles a report click.
     function handleReportClick(e, rep, link) {
         refreshTargets();
         if (rep.flow === 'form1' && CoC.partNumberCheck.pending) {
             e.preventDefault();
+            e.stopImmediatePropagation();
+            link.classList.remove(FLOW_CLASS);
             showMessagePopup('Checking Part No. against Description, please wait...', rep.title);
             CoC.pendingForm1Click = link;
+            return;
+        }
+        // 'Second button block': verify CARs 571 statements before allowing Form 1
+        // This runs even when button appears unblocked, ensuring IAW statements are inserted
+        if (rep.flow === 'form1') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            link.classList.add(FLOW_CLASS);
+            runForm1SecondBlock(link);
             return;
         }
         var reason = getBlockReason(rep);
         if (reason) {
             e.preventDefault();
+            e.stopImmediatePropagation();
             applyButtonState();
             showMessagePopup(reason, rep.title);
             return;
@@ -990,22 +1054,67 @@
         if (rep.flow === 'coc') {
             if (requiredFieldsFilled()) return; // all dates present - open normally
             e.preventDefault();
+            e.stopImmediatePropagation();
             enterEditMode(function () { doCoCFlow(link); });
-        } else if (rep.flow === 'form1') {
-            e.preventDefault();
-            handleForm1Flow(link);
         }
         // 'normal' flow: let the link open normally
     }
 
+    // 'Second button block': verify/add CARs 571 statements then proceed
+    function runForm1SecondBlock(link) {
+        refreshTargets();
+        var lines = computeSpecialRemarkLines();
+        // Check if any remarks are missing from the custom fields text area
+        var ta = document.getElementById('OrderHead_CustomFields_14__Text');
+        var missing = [];
+        if (ta) {
+            var cur = (ta.value || '').trim();
+            missing = lines.filter(function (l) {
+                return cur.toUpperCase().indexOf(String(l).toUpperCase()) === -1;
+            });
+        }
+        // If statements need to be added, show verification popup
+        if (missing.length > 0) {
+            showForm1CertPopup(function (cert) {
+                // Add the missing CARs statements
+                var finalLines = lines;
+                if (cert) {
+                    finalLines = lines.map(function (l) {
+                        if (/Work done IAW CARs 571 Appendix B(?: and F)?/i.test(l)) {
+                            return l + ' - Unit Certified to: ' + cert;
+                        }
+                        return l;
+                    });
+                }
+                // Append the missing statements
+                appendSpecialRemarks(finalLines);
+                // Now proceed with the full Form 1 flow
+                handleForm1Flow(link);
+            }, function () {
+                // User cancelled - just open the report normally
+                openReport(link);
+            });
+            return;
+        }
+        // All statements already present - proceed normally
+        handleForm1Flow(link);
+    }
+
     document.addEventListener('click', function (e) {
+        if (e._shpFlowDispatch) {
+            // Synthetic click re-dispatched by openReport for QZ Tray: kill the
+            // default navigation (we open a tab ourselves if QZ declines) but
+            // let QZ's listener still receive the event.
+            e.preventDefault();
+            return;
+        }
         var el = e.target;
         if (!el || !el.closest) return;
         REPORTS.forEach(function (r) {
             var link = el.closest('a[href*="' + r.href + '"]');
             if (link) handleReportClick(e, r, link);
         });
-    });
+    }, true);
 
     // ── Documentation Revision Info check ──
     // Revision Info is only on /Catalog/Documentations/EditDocumentation?id=<docId>
