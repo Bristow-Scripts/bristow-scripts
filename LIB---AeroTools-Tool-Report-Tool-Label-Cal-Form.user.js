@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - AeroTools - Tool Report / Tool Label / Cal Form
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      1.3
+// @version      1.4
 // @description  Clear filters, Print Tool Report, Bulk Edit, Print Label, Print Shop Cal Form for AeroTools
 // @match        https://bristow-app.azurewebsites.net/Catalog/AeroTools*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---AeroTools-Tool-Report-Tool-Label-Cal-Form.user.js
@@ -658,6 +658,29 @@
         setTimeout(function () { w.print(); }, 500);
     }
 
+    // Parses any date format the app produces: YYYY-MM-DD, DD-MMM-YYYY,
+    // DD/MM/YYYY, MM/DD/YYYY. Returns {y, m, d} or null.
+    function parseDateParts(str) {
+        var s = String(str || '').trim();
+        if (!s) return null;
+        var MONTHS = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
+        var m;
+        if (m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s)) {
+            return { y: +m[1], m: +m[2] - 1, d: +m[3] };
+        }
+        if (m = /^(\d{1,2})[-\/]([A-Za-z]{3,})[-\/](\d{2,4})/.exec(s)) {
+            var mo = MONTHS[m[2].toUpperCase().slice(0, 3)];
+            if (mo === undefined) return null;
+            var y = +m[3];
+            if (y < 100) y += 2000;
+            return { y: y, m: mo, d: +m[1] };
+        }
+        if (m = /^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/.exec(s)) {
+            return { y: +m[3], m: +m[1] - 1, d: +m[2] };
+        }
+        return null;
+    }
+
     function printLabel() {
         var toolNumber = document.getElementById('Tool_ToolNumber').value || '';
         var altToolNumber = document.getElementById('Tool_AltToolNumber').value || '';
@@ -678,11 +701,10 @@
         else if (category === 'PRIMARY') catLetter = 'P';
 
         var formattedDate = '';
-        if (calDueDate) {
-            var parts = calDueDate.split(/[-/]/);
-            var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        var dp = parseDateParts(calDueDate);
+        if (dp) {
             var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            formattedDate = String(d.getDate()).padStart(2, '0') + '/' + months[d.getMonth()] + '/' + d.getFullYear();
+            formattedDate = String(dp.d).padStart(2, '0') + '/' + months[dp.m] + '/' + dp.y;
         }
 
         var firstLine = description.split('\n')[0] || '';
