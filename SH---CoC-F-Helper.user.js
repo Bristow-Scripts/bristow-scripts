@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - CoC-F Helper
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      3.1
+// @version      3.2
 // @description  Report guards for shipping: CoC auto-fills/stamps dates; CoC/Sub CoC/Form 1 grayed by Work Performed & Cost Center (dropdown); CoC & Form 1 blocked until a manual is Selected and not expired; Form 1 adds CARs 571 remarks with Unit Certified to prompt, Bell Helicopters REV, blocks on Part No./Description mismatch and missing manual Revision Info.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -923,22 +923,47 @@
             if (hasEncod && !hasReport && missingCars) {
                 lines.push('Work done IAW CARs 571 Appendix F');
             }
+            // Altitude Digitizer — Appendix F (no certification needed)
+            if (/ALTITUDE DIGITIZER/.test(comp) && missingCars) {
+                lines.push('Work done IAW CARs 571 Appendix F');
+            }
             // Encoder / reporting component (Reporter or both Encoder+Reporter) — Appendix B and F
             if (((hasEncod && hasReport) || hasReport) && missingCars) {
                 lines.push('Work done IAW CARs 571 Appendix B and F');
                 form1CertNeeded = true;
             }
-            // Plain Altimeter (excluded for Radio/Encoding altimeters: contains RAD or ENCOD/REPORT)
-            if (/ALTIMETER/.test(comp) && !/RAD/.test(comp) && !/ENCOD/.test(comp) && !/REPORT/.test(comp) &&
-                missingCars) {
-                lines.push('Work Done IAW CARs 571 Appendix B');
-                form1CertNeeded = true;
+            // Altimeter family (excluded for Radio/Radar: contains RAD)
+            if (/ALTIMETER/.test(comp) && !/RAD/.test(comp) && missingCars) {
+                // No rule: cabin, station, tester/test set, ground station, warning test set, vario
+                var noRule = /CABIN|STATION|TEST(?:ER|[_ ]SET)|GROUND[_ ]STATION|WARNING[_ ]TEST|VARIO/i;
+                if (noRule.test(comp)) {
+                    // intentionally blank — no CARs 571 remark needed
+                }
+                // B + F: encoding altimeters, altimeter/encoder combos, alit-coder
+                else if (/ENCOD|ALTI[_ ]?CODER|ENCODER[_ ]?ALTIMETER|ALTIMETER[_ ]?ENCODER/i.test(comp)) {
+                    lines.push('Work done IAW CARs 571 Appendix B and F');
+                    form1CertNeeded = true;
+                }
+                // B only: plain altimeters (sensitive, pressure, pneumatic, density, servo, etc.)
+                else {
+                    lines.push('Work Done IAW CARs 571 Appendix B');
+                    form1CertNeeded = true;
+                }
             }
         }
         // Emergency Locator Transmitter (any cost center)
         if (componentHasAny(['emergency locator transmitter']) && missingCars) {
             lines.push('Work Done IAW CARs 571 Appendix G');
         }
+        // A component may match several rules (e.g. an encoded altitude
+        // digitizer) - drop duplicate statements so nothing is appended twice.
+        var seen = {};
+        lines = lines.filter(function (l) {
+            var k = l.toUpperCase();
+            if (seen[k]) return false;
+            seen[k] = true;
+            return true;
+        });
         return lines;
     }
 
