@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - CoC-F Helper
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      3.2
+// @version      3.3
 // @description  Report guards for shipping: CoC auto-fills/stamps dates; CoC/Sub CoC/Form 1 grayed by Work Performed & Cost Center (dropdown); CoC & Form 1 blocked until a manual is Selected and not expired; Form 1 adds CARs 571 remarks with Unit Certified to prompt, Bell Helicopters REV, blocks on Part No./Description mismatch and missing manual Revision Info.
 // @match        https://bristow-app.azurewebsites.net/*
 // @noframes
@@ -926,6 +926,11 @@
             // Altitude Digitizer — Appendix F (no certification needed)
             if (/ALTITUDE DIGITIZER/.test(comp) && missingCars) {
                 lines.push('Work done IAW CARs 571 Appendix F');
+            }
+            // Altitude Gauge — Appendix B (except Oxygen Altitude Gauge)
+            if (/ALTITUDE[_ ]?GAUGE/.test(comp) && !/OXYGEN/.test(comp) && missingCars) {
+                lines.push('Work Done IAW CARs 571 Appendix B');
+                form1CertNeeded = true;
             }
             // Encoder / reporting component (Reporter or both Encoder+Reporter) — Appendix B and F
             if (((hasEncod && hasReport) || hasReport) && missingCars) {
