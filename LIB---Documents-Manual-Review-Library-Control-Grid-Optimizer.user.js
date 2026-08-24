@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - Documents - Manual Review Report / Library Control Sheet / Grid Optimizer
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      1.7
+// @version      1.8
 // @description  Print Manual Review Report + Library Control Sheet + cached part-number search + edit-page helpers for Documentations
 // @match        https://bristow-app.azurewebsites.net/Catalog/Documentations*
 // @noframes
@@ -28,6 +28,20 @@
 
     function normalizePart(s) {
         return String(s || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    }
+
+    // The Location column is permanently filtered to exclude CAC rows.
+    var LOCATION_EXCLUDE_CAC = { field: 'Location', operator: 'doesnotcontain', value: 'CAC' };
+
+    function ensureLocationFilter(g) {
+        try {
+            var cur = g.dataSource.filter();
+            var filters = (cur && cur.filters) ? cur.filters.filter(function (x) {
+                return !(x && x.field === 'Location');
+            }) : [];
+            filters.push(LOCATION_EXCLUDE_CAC);
+            g.dataSource.filter({ logic: 'and', filters: filters });
+        } catch (e) {}
     }
 
     function initListPage() {
@@ -83,7 +97,8 @@
                         value: val
                     });
                 }
-                g.dataSource.filter(filters.length ? { logic: 'and', filters: filters } : []);
+                filters.push({ field: 'Location', operator: 'doesnotcontain', value: 'CAC' });
+                g.dataSource.filter({ logic: 'and', filters: filters });
             }, 150);
         }
 
@@ -179,7 +194,7 @@
         var g = grid();
         if (!g) return;
         if (_allRecords) applyRecords(g, _allRecords);
-        try { g.dataSource.filter([]); } catch (e) {}
+        ensureLocationFilter(g);
         var search = document.getElementById('DocumentationSearch');
         if (search) search.value = '';
         var part = document.getElementById('DocumentationPartSearch');
@@ -338,7 +353,8 @@
                     ]
                 },
                 { field: 'ExpirationDate', operator: 'gte', value: today },
-                { field: 'ExpirationDate', operator: 'lte', value: endDate }
+                { field: 'ExpirationDate', operator: 'lte', value: endDate },
+                { field: 'Location', operator: 'doesnotcontain', value: 'CAC' }
             ]
         };
         ds.filter(printFilter);
@@ -768,6 +784,7 @@
         injectGridStyles();
 
         enforceColumnOrder(g);
+        ensureLocationFilter(g);
 
         g.unbind('dataBound');
         g.bind('dataBound', function () { enhanceGridRows(g); });
