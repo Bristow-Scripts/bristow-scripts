@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - Documents - Manual Review Report / Library Control Sheet / Grid Optimizer
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      1.8
+// @version      2.2
 // @description  Print Manual Review Report + Library Control Sheet + cached part-number search + edit-page helpers for Documentations
 // @match        https://bristow-app.azurewebsites.net/Catalog/Documentations*
 // @noframes
@@ -874,6 +874,68 @@
         });
 
         input.parentNode.replaceChild(select, input);
+
+        var desc = document.getElementById('Documentation_Description');
+        if (desc && desc.tagName === 'TEXTAREA') desc.rows = 6;
+    }
+
+    // ==================== ADD ITEMS QUICK JUMP ====================
+
+    function setupAddItemsJump() {
+        var hs = document.querySelectorAll('h4');
+        var target = null;
+        for (var i = 0; i < hs.length; i++) {
+            if (hs[i].textContent.trim() === 'Add Items') { target = hs[i]; break; }
+        }
+        if (!target || document.getElementById('jump-add-items-btn')) return !!target;
+
+        target.id = 'docAddItemsTarget';
+
+        var btn = document.createElement('a');
+        btn.id = 'jump-add-items-btn';
+        btn.className = 'btn btn-default';
+        btn.href = '#docAddItemsTarget';
+        btn.textContent = 'Add Items';
+        btn.title = 'Jump to Add Items section';
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+
+        var saveBtn = document.querySelector('button[data-float-save-applied]');
+        if (!saveBtn) return false;
+        btn.style.position = 'fixed';
+        btn.style.top = '10px';
+        btn.style.zIndex = '9999';
+        btn.style.padding = '5px 10px';
+        btn.style.fontSize = '15px';
+        btn.style.borderRadius = '4px';
+        btn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.35)';
+        document.body.appendChild(btn);
+        btn.style.left = (370 + saveBtn.offsetWidth + 10) + 'px';
+        return true;
+    }
+
+    // ==================== FLOATING SAVE BUTTON ====================
+
+    function setupFloatingSave() {
+        var submits = document.querySelectorAll('button[type="submit"]');
+        var btn = null;
+        for (var i = 0; i < submits.length; i++) {
+            if (submits[i].textContent.trim().toLowerCase() === 'save') { btn = submits[i]; break; }
+        }
+        if (!btn || btn.dataset.floatSaveApplied) return !!btn;
+
+        btn.dataset.floatSaveApplied = '1';
+        btn.style.position = 'fixed';
+        btn.style.top = '10px';
+        btn.style.left = '370px';
+        btn.style.zIndex = '9999';
+        btn.style.padding = '5px 10px';
+        btn.style.fontSize = '15px';
+        btn.style.borderRadius = '4px';
+        btn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.35)';
+        return true;
     }
 
     // ==================== INIT ====================
@@ -903,6 +965,13 @@
     setTimeout(function () {
         setupEditPage();
     }, 300);
+
+    var jumpTries = 0;
+    var jumpTimer = setInterval(function () {
+        jumpTries++;
+        var done = setupFloatingSave() && setupAddItemsJump();
+        if (done || jumpTries > 120) clearInterval(jumpTimer);
+    }, 500);
 })();
 
 // ==================== LIBRARY CONTROL SHEET ====================
