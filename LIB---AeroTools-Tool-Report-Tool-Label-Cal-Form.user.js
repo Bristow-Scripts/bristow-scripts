@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         LIB - AeroTools - Tool Report / Tool Label / Cal Form
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      1.4
-// @description  Clear filters, Print Tool Report, Bulk Edit, Print Label, Print Shop Cal Form for AeroTools
+// @version      1.6
+// @description  Clear filters, Print Tool Report, Bulk Edit, Print Label, Print Shop Cal Form, Structured Description for AeroTools
 // @match        https://bristow-app.azurewebsites.net/Catalog/AeroTools*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---AeroTools-Tool-Report-Tool-Label-Cal-Form.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---AeroTools-Tool-Report-Tool-Label-Cal-Form.user.js
@@ -491,6 +491,8 @@
     function initEditPage() {
         injectPrintLabelButton();
         injectPrintCalFormButton();
+        replaceBrokenFields();
+        injectDescriptionFields();
         var ta = document.getElementById('Tool_Description');
         if (ta) {
             ta.style.height = 'auto';
@@ -500,6 +502,152 @@
                 this.style.height = this.scrollHeight + 'px';
             });
         }
+    }
+
+    // ==================== REPLACE BROKEN MFG / LOCATION FIELDS ====================
+
+    function replaceBrokenFields() {
+        var mfgOrig = document.getElementById('Tool_Manufacturer');
+        var locOrig = document.getElementById('Tool_Location');
+        if (!mfgOrig || !locOrig) return;
+        if (document.getElementById('aero-manufacturer')) return;
+
+        var mfgGroup = mfgOrig.closest('.form-group');
+        var locGroup = locOrig.closest('.form-group');
+        var row = mfgGroup ? mfgGroup.parentNode : null;
+
+        var mfgVal = mfgOrig.value || '';
+        var locVal = locOrig.value || '';
+
+        if (mfgGroup) mfgGroup.style.display = 'none';
+        if (locGroup) locGroup.style.display = 'none';
+
+        var newRow = document.createElement('div');
+        newRow.className = 'row';
+        newRow.innerHTML =
+            '<div class="col-md-3" style="padding-left:30px;"><div class="form-group">' +
+                '<label for="aero-manufacturer">Manufacturer</label>' +
+                '<input class="form-control" type="text" id="aero-manufacturer" value="">' +
+            '</div></div>' +
+            '<div class="col-md-3"><div class="form-group">' +
+                '<label for="aero-location">Location</label>' +
+                '<input class="form-control" type="text" id="aero-location" value="">' +
+            '</div></div>';
+
+        if (row) row.parentNode.insertBefore(newRow, row);
+        else return;
+
+        document.getElementById('aero-manufacturer').value = mfgVal;
+        document.getElementById('aero-location').value = locVal;
+
+        var form = mfgOrig.closest('form');
+        if (form) {
+            form.addEventListener('submit', function () {
+                mfgOrig.value = document.getElementById('aero-manufacturer').value;
+                locOrig.value = document.getElementById('aero-location').value;
+            });
+        }
+    }
+
+    // ==================== STRUCTURED DESCRIPTION FIELDS ====================
+
+    function injectDescriptionFields() {
+        var ta = document.getElementById('Tool_Description');
+        if (!ta || document.getElementById('aero-tool-name')) return;
+
+        var descFormGroup = ta.closest('.form-group');
+        if (!descFormGroup) return;
+
+        var parsed = parseDescription(ta.value || '');
+
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'margin-bottom:10px;';
+        wrap.innerHTML =
+            '<div class="row">' +
+                '<div class="col-md-3"><div class="form-group">' +
+                    '<label>Tool Name</label>' +
+                    '<input class="form-control" id="aero-tool-name" type="text">' +
+                '</div></div>' +
+                '<div class="col-md-3"><div class="form-group">' +
+                    '<label>Owner</label>' +
+                    '<input class="form-control" id="aero-owner" type="text">' +
+                '</div></div>' +
+            '</div>' +
+            '<div class="row">' +
+                '<div class="col-md-3"><div class="form-group">' +
+                    '<label>Category</label>' +
+                    '<select class="form-control" id="aero-category">' +
+                        '<option value="">--</option>' +
+                        '<option>Primary</option>' +
+                        '<option>Secondary</option>' +
+                        '<option value="N/A">N/A</option>' +
+                    '</select>' +
+                '</div></div>' +
+                '<div class="col-md-3"><div class="form-group">' +
+                    '<label>Cal Interval</label>' +
+                    '<input class="form-control" id="aero-cal-interval" type="text">' +
+                '</div></div>' +
+            '</div>';
+
+        descFormGroup.parentNode.insertBefore(wrap, descFormGroup);
+
+        document.getElementById('aero-tool-name').value = parsed.toolName;
+        document.getElementById('aero-owner').value = parsed.owner;
+        document.getElementById('aero-cal-interval').value = parsed.calInterval;
+
+        var catSelect = document.getElementById('aero-category');
+        var catVal = parsed.category;
+        for (var i = 0; i < catSelect.options.length; i++) {
+            if (catSelect.options[i].value.toLowerCase() === catVal.toLowerCase() ||
+                catSelect.options[i].text.toLowerCase() === catVal.toLowerCase()) {
+                catSelect.selectedIndex = i;
+                break;
+            }
+        }
+
+        var fieldIds = ['aero-tool-name', 'aero-owner', 'aero-category', 'aero-cal-interval', 'aero-location', 'aero-manufacturer'];
+        fieldIds.forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('input', buildDescription);
+                el.addEventListener('change', buildDescription);
+            }
+        });
+    }
+
+    function parseDescription(text) {
+        var lines = text.split('\n');
+        var result = { toolName: '', owner: '', category: '', calInterval: '' };
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i].trim();
+            if (/^owner:/i.test(line)) result.owner = line.replace(/^owner:\s*/i, '');
+            else if (/^category:/i.test(line)) result.category = line.replace(/^category:\s*/i, '');
+            else if (/^cal[\s-]+interval:/i.test(line)) result.calInterval = line.replace(/^cal[\s-]+interval:\s*/i, '');
+            else if (/^location:/i.test(line)) {}
+            else if (/^manufacturer:/i.test(line)) {}
+            else if (line && !result.toolName) result.toolName = line;
+        }
+        return result;
+    }
+
+    function buildDescription() {
+        var parts = [];
+        var toolName = (document.getElementById('aero-tool-name') || {}).value || '';
+        var owner = (document.getElementById('aero-owner') || {}).value || '';
+        var category = (document.getElementById('aero-category') || {}).value || '';
+        var calInterval = (document.getElementById('aero-cal-interval') || {}).value || '';
+        var location = (document.getElementById('aero-location') || {}).value || '';
+        var manufacturer = (document.getElementById('aero-manufacturer') || {}).value || '';
+
+        if (toolName.trim()) parts.push(toolName.trim());
+        if (owner.trim()) parts.push('Owner: ' + owner.trim());
+        if (location.trim()) parts.push('Location: ' + location.trim());
+        if (category.trim()) parts.push('Category: ' + category.trim());
+        if (calInterval.trim()) parts.push('Cal interval: ' + calInterval.trim());
+        if (manufacturer.trim()) parts.push('Manufacturer: ' + manufacturer.trim());
+
+        var ta = document.getElementById('Tool_Description');
+        if (ta) ta.value = parts.join('\n');
     }
 
     function injectPrintLabelButton() {
