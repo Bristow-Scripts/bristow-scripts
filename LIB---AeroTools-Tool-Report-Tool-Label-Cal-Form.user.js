@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - AeroTools - Tool Report / Tool Label / Cal Form
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      1.6
+// @version      1.7
 // @description  Clear filters, Print Tool Report, Bulk Edit, Print Label, Print Shop Cal Form, Structured Description for AeroTools
 // @match        https://bristow-app.azurewebsites.net/Catalog/AeroTools*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---AeroTools-Tool-Report-Tool-Label-Cal-Form.user.js
@@ -356,7 +356,9 @@
         data.forEach(function (r) {
             var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
             var calStr = '';
-            var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(r.CalDueDate || '');
+            var calRaw = r.CalDueDate || '';
+            var calText = (typeof calRaw === 'string') ? calRaw : (calRaw instanceof Date ? String(calRaw.getFullYear()) + '-' + String(calRaw.getMonth() + 1).padStart(2, '0') + '-' + String(calRaw.getDate()).padStart(2, '0') : String(calRaw));
+            var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(calText);
             if (m) {
                 var mo = parseInt(m[2], 10) - 1;
                 if (mo >= 0 && mo < 12) {
