@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         LIB - AeroTools - Tool Report / Tool Label / Cal Form
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      1.7
-// @description  Clear filters, Print Tool Report, Bulk Edit, Print Label, Print Shop Cal Form, Structured Description for AeroTools
+// @version      1.9
+// @description  Clear filters, Print Tool Report, Bulk Edit, Print Label, Print Shop Cal Form, Structured Description, Part Number rename, Tool Number links for AeroTools
 // @match        https://bristow-app.azurewebsites.net/Catalog/AeroTools*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---AeroTools-Tool-Report-Tool-Label-Cal-Form.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---AeroTools-Tool-Report-Tool-Label-Cal-Form.user.js
@@ -17,6 +17,7 @@
     var selectedTools = {};
     var isEditing = false;
     var isEditPage = window.location.pathname.includes('EditAeroTool');
+    var isViewPage = window.location.pathname.includes('ViewAeroTool');
 
     function grid() { return $('#grid').data('kendoGrid'); }
 
@@ -30,7 +31,24 @@
 
     // ==================== LIST PAGE ====================
 
+    function injectColumnWidthCss() {}
+
+    function forceColumnWidths() {
+        var g = grid();
+        if (!g) return;
+        var widths = [40, 140, 140, 128, 0, 165, 96, 74];
+        g.thead.find('tr:first th').each(function (i) {
+            if (widths[i]) this.style.width = widths[i] + 'px';
+        });
+        g.tbody.find('tr').each(function () {
+            $(this).find('td').each(function (i) {
+                if (widths[i]) this.style.width = widths[i] + 'px';
+            });
+        });
+    }
+
     function initListPage() {
+        injectColumnWidthCss();
         clearDefaultFilter();
         injectListUI();
 
@@ -268,6 +286,30 @@
             td.append(cb);
             row.prepend(td);
         });
+
+        renameGridColumnHeader();
+        forceColumnWidths();
+        addToolNumberLinks();
+    }
+
+    function addToolNumberLinks() {
+        var g = grid();
+        if (!g) return;
+        g.tbody.find('tr').each(function () {
+            var row = $(this);
+            var uid = row.attr('data-uid');
+            var dataItem = g.dataSource.getByUid(uid);
+            if (!dataItem) return;
+            var cell = row.find('td:nth-child(2)');
+            if (!cell.length || cell.find('a').length) return;
+            var num = cell.text().trim();
+            if (!num) return;
+            var a = document.createElement('a');
+            a.href = '/Catalog/AeroTools/EditAeroTool?id=' + dataItem.Id;
+            a.textContent = num;
+            a.style.cssText = 'color:#337ab7;text-decoration:underline;cursor:pointer;';
+            cell.empty().append(a);
+        });
     }
 
     function updateBulkEditButton() {
@@ -350,7 +392,7 @@
         h += '<h2>Aerospace Tools - Calibration Due Within 45 Days</h2>';
         h += '<p>Generated: ' + new Date().toLocaleDateString() + ' | In-Service items due by: ' + new Date(Date.now() + 45 * 86400000).toLocaleDateString() + ' | Items: ' + data.length + '</p>';
         h += '<table><thead><tr>';
-        h += '<th class="col-tool">LQ Tool #</th><th class="col-alt">Alt Tool #</th><th class="col-serial">Serial #</th><th class="col-desc">Description</th><th class="col-cal">Cal Due</th><th class="col-notes">Notes</th>';
+        h += '<th class="col-tool">LQ Tool #</th><th class="col-alt">Part #</th><th class="col-serial">Serial #</th><th class="col-desc">Description</th><th class="col-cal">Cal Due</th><th class="col-notes">Notes</th>';
         h += '</tr></thead><tbody>';
 
         data.forEach(function (r) {
@@ -488,6 +530,20 @@
         }
     }
 
+    // ==================== RENAME ALT TOOL NUMBER → PART NUMBER ====================
+
+    function renameAltToolNumberLabels() {
+        var labels = document.querySelectorAll('label[for="Tool_AltToolNumber"]');
+        labels.forEach(function (l) { l.textContent = 'Part Number'; });
+    }
+
+    function renameGridColumnHeader() {
+        var titles = document.querySelectorAll('.k-column-title');
+        titles.forEach(function (t) {
+            if (t.textContent.trim() === 'Alt Tool Number') t.textContent = 'Part Number';
+        });
+    }
+
     // ==================== EDIT PAGE ====================
 
     function initEditPage() {
@@ -495,6 +551,7 @@
         injectPrintCalFormButton();
         replaceBrokenFields();
         injectDescriptionFields();
+        renameAltToolNumberLabels();
         var ta = document.getElementById('Tool_Description');
         if (ta) {
             ta.style.height = 'auto';
@@ -925,14 +982,15 @@
     // ==================== INIT ====================
 
     function tryInit() {
-        if (window.$ && isEditPage && !document.getElementById('print-label-btn')) {
-            injectPrintLabelButton();
-        }
         if (window.$ && !isEditPage && grid()) {
             initListPage();
             return true;
         }
         return false;
+    }
+
+    function initViewPage() {
+        renameAltToolNumberLabels();
     }
 
     function startInit() {
@@ -944,8 +1002,13 @@
                 if (!document.getElementById('print-label-btn')) {
                     injectPrintLabelButton();
                 }
-                if (document.getElementById('print-label-btn') || t > 80) clearInterval(id);
+                if (!document.getElementById('print-calform-btn')) {
+                    injectPrintCalFormButton();
+                }
+                if ((document.getElementById('print-label-btn') && document.getElementById('print-calform-btn')) || t > 80) clearInterval(id);
             }, 500);
+        } else if (isViewPage) {
+            initViewPage();
         } else {
             var t2 = 0;
             var id2 = setInterval(function () {
