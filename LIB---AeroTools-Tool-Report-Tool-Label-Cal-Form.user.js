@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - AeroTools - Tool Report / Tool Label / Cal Form
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      1.9
+// @version      2.7
 // @description  Clear filters, Print Tool Report, Bulk Edit, Print Label, Print Shop Cal Form, Structured Description, Part Number rename, Tool Number links for AeroTools
 // @match        https://bristow-app.azurewebsites.net/Catalog/AeroTools*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---AeroTools-Tool-Report-Tool-Label-Cal-Form.user.js
@@ -544,6 +544,114 @@
         });
     }
 
+    // ==================== CALIBRATION DATE / INTERVAL / DUE DATE AUTO-CALC ====================
+
+    function injectCalDateSection() {
+        if (document.getElementById('aero-cal-date')) return;
+        var dueDateInput = document.getElementById('Tool_CalDueDate');
+        if (!dueDateInput) return;
+
+        var dueFormGroup = dueDateInput.closest('.form-group');
+        var dueCol = dueFormGroup ? dueFormGroup.parentNode : null;
+        var dueRow = dueCol ? dueCol.parentNode : null;
+        if (!dueRow) return;
+
+        var row = document.createElement('div');
+        row.className = 'row';
+        row.style.cssText = 'margin-bottom:10px;';
+        row.innerHTML =
+            '<div class="col-md-3"><div class="form-group">' +
+                '<label>Calibration Date</label>' +
+                '<span style="" class="k-datepicker k-input k-input-solid k-input-md k-rounded-md">' +
+                    '<input id="aero-cal-date" type="text" class="k-input-inner" autocomplete="off" placeholder="DD-MMM-YYYY">' +
+                '</span>' +
+            '</div></div>' +
+            '<div class="col-md-3"><div class="form-group">' +
+                '<label>Cal Interval (days)</label>' +
+                '<input class="form-control" id="aero-cal-interval" type="number" min="1">' +
+            '</div></div>';
+
+        dueRow.parentNode.insertBefore(row, dueRow);
+
+        function initKendoPicker() {
+            if (typeof jQuery === 'undefined' || !jQuery.fn.kendoDatePicker) return false;
+            var el = jQuery('#aero-cal-date');
+            if (el.data('kendoDatePicker')) return true;
+            el.kendoDatePicker({ format: 'yyyy-MM-dd', value: null });
+            return true;
+        }
+        if (!initKendoPicker()) {
+            var tries = 0;
+            var retryInit = setInterval(function () {
+                tries++;
+                if (initKendoPicker() || tries > 10) clearInterval(retryInit);
+            }, 500);
+        }
+
+        var style = document.createElement('style');
+        style.textContent =
+            '#aero-cal-date { border:1px solid #ccc; border-radius:4px; padding:6px 12px; height:34px; width:100%; box-sizing:border-box; }' +
+            '#aero-cal-date:focus { border-color:#66afe9; outline:0; box-shadow:inset 0 1px 1px rgba(0,0,0,.075),0 0 8px rgba(102,175,233,.6); }';
+        document.head.appendChild(style);
+
+        var calDateInput = document.getElementById('aero-cal-date');
+        var calIntervalInput = document.getElementById('aero-cal-interval');
+        var hiddenInterval = document.getElementById('aero-cal-interval-hidden');
+
+        if (hiddenInterval && hiddenInterval.value) {
+            calIntervalInput.value = hiddenInterval.value;
+        }
+
+        calDateInput.addEventListener('change', autoCalcDueDate);
+        calIntervalInput.addEventListener('input', function () {
+            if (hiddenInterval) hiddenInterval.value = this.value;
+            autoCalcDueDate();
+        });
+
+        if (calDateInput.value && calIntervalInput.value) {
+            autoCalcDueDate();
+        }
+    }
+
+    function parseDdMmmYyyy(str) {
+        var MONTHS = {JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11};
+        var s = String(str || '').trim();
+        var m;
+        if (m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec(s)) {
+            var mo = MONTHS[m[2].toUpperCase()];
+            if (mo === undefined) return null;
+            return new Date(+m[3], mo, +m[1]);
+        }
+        if (m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s)) {
+            return new Date(+m[1], +m[2] - 1, +m[3]);
+        }
+        return null;
+    }
+
+    var _lastCalcTime = 0;
+    function autoCalcDueDate() {
+        var now = Date.now();
+        if (now - _lastCalcTime < 100) return;
+        _lastCalcTime = now;
+
+        var calDateInput = document.getElementById('aero-cal-date');
+        var calIntervalInput = document.getElementById('aero-cal-interval');
+        var dueDateInput = document.getElementById('Tool_CalDueDate');
+        if (!calDateInput || !calIntervalInput || !dueDateInput) return;
+        if (!calIntervalInput.value) return;
+
+        var d = parseDdMmmYyyy(calDateInput.value);
+        if (!d || isNaN(d.getTime())) return;
+
+        var interval = parseInt(calIntervalInput.value, 10);
+        var result = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        result.setDate(result.getDate() + interval);
+
+        var months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+        var formatted = String(result.getDate()).padStart(2, '0') + '-' + months[result.getMonth()] + '-' + result.getFullYear();
+        dueDateInput.value = formatted;
+    }
+
     // ==================== EDIT PAGE ====================
 
     function initEditPage() {
@@ -551,6 +659,7 @@
         injectPrintCalFormButton();
         replaceBrokenFields();
         injectDescriptionFields();
+        injectCalDateSection();
         renameAltToolNumberLabels();
         var ta = document.getElementById('Tool_Description');
         if (ta) {
@@ -642,17 +751,14 @@
                         '<option value="N/A">N/A</option>' +
                     '</select>' +
                 '</div></div>' +
-                '<div class="col-md-3"><div class="form-group">' +
-                    '<label>Cal Interval</label>' +
-                    '<input class="form-control" id="aero-cal-interval" type="text">' +
-                '</div></div>' +
-            '</div>';
+            '</div>' +
+            '<input type="hidden" id="aero-cal-interval-hidden">';
 
         descFormGroup.parentNode.insertBefore(wrap, descFormGroup);
 
         document.getElementById('aero-tool-name').value = parsed.toolName;
         document.getElementById('aero-owner').value = parsed.owner;
-        document.getElementById('aero-cal-interval').value = parsed.calInterval;
+        document.getElementById('aero-cal-interval-hidden').value = parsed.calInterval;
 
         var catSelect = document.getElementById('aero-category');
         var catVal = parsed.category;
@@ -664,7 +770,7 @@
             }
         }
 
-        var fieldIds = ['aero-tool-name', 'aero-owner', 'aero-category', 'aero-cal-interval', 'aero-location', 'aero-manufacturer'];
+        var fieldIds = ['aero-tool-name', 'aero-owner', 'aero-category', 'aero-cal-interval-hidden', 'aero-location', 'aero-manufacturer'];
         fieldIds.forEach(function (id) {
             var el = document.getElementById(id);
             if (el) {
@@ -694,7 +800,7 @@
         var toolName = (document.getElementById('aero-tool-name') || {}).value || '';
         var owner = (document.getElementById('aero-owner') || {}).value || '';
         var category = (document.getElementById('aero-category') || {}).value || '';
-        var calInterval = (document.getElementById('aero-cal-interval') || {}).value || '';
+        var calInterval = (document.getElementById('aero-cal-interval-hidden') || {}).value || '';
         var location = (document.getElementById('aero-location') || {}).value || '';
         var manufacturer = (document.getElementById('aero-manufacturer') || {}).value || '';
 
