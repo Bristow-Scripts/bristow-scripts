@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - AeroTools - Tool Report / Tool Label / Cal Form
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      2.7
+// @version      2.8
 // @description  Clear filters, Print Tool Report, Bulk Edit, Print Label, Print Shop Cal Form, Structured Description, Part Number rename, Tool Number links for AeroTools
 // @match        https://bristow-app.azurewebsites.net/Catalog/AeroTools*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---AeroTools-Tool-Report-Tool-Label-Cal-Form.user.js
@@ -606,6 +606,7 @@
         calIntervalInput.addEventListener('input', function () {
             if (hiddenInterval) hiddenInterval.value = this.value;
             autoCalcDueDate();
+            buildDescription();
         });
 
         if (calDateInput.value && calIntervalInput.value) {
