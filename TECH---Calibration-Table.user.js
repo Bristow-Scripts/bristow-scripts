@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      7.4
+// @version      7.5
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing.
 // @author       You
 // @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
@@ -1708,6 +1708,7 @@
     // Click into any cell (including a previous row, to retest a point) before
     // pulling the wrench, and that's where the reading lands.
     let serialPort = null;
+    let openSerialInProgress = false;
     let serialReader = null;
 
     // Some USB-serial drivers (CH340 in particular) are slow to release the port
@@ -1762,8 +1763,14 @@
     }
 
     async function openSerial(isRetry) {
+        if (openSerialInProgress) return;
+        openSerialInProgress = true;
         try {
-            // dataBits: 8, stopBits: 1, parity: none — matches this unit's ACTUAL working
+            // Close any existing open port first to avoid "port is already open" errors
+            if (serialPort && serialPort.readable) {
+                try { await serialPort.close(); } catch (_) {}
+            }
+            // dataBits: 8, stopBits: 2, parity: none — matches this unit's ACTUAL working
             // configuration (confirmed via the old WedgeLink setup), not the printed manual's
             // factory default of 2 stop bits. Real-world config takes precedence here since
             // settings can drift from factory defaults over a unit's life.
@@ -1772,14 +1779,13 @@
             readSerialLoop();
         } catch (err) {
             if (!isRetry) {
-                // The adapter's driver can be slow to release the port right after a
-                // page refresh/navigation — wait briefly and try once more before
-                // reporting a real failure.
                 setSerialStatus('Reconnecting…', false);
                 setTimeout(() => openSerial(true), 600);
                 return;
             }
             setSerialStatus('Open failed: ' + err.message + ' — try unplugging and replugging the adapter', false);
+        } finally {
+            openSerialInProgress = false;
         }
     }
 
@@ -1797,7 +1803,8 @@
     // work order.
     function tryAutoReconnectSerial() {
         if (!navigator.serial) return;
-        // Already connected or connection in progress — skip
+        if (openSerialInProgress) return;
+        // Already connected — skip
         if (serialPort && serialPort.readable) return;
         navigator.serial.getPorts().then(ports => {
             if (ports.length) { serialPort = ports[0]; openSerial(); }
