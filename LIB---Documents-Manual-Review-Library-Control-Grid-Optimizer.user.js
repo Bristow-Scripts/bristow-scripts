@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - Documents - Manual Review Report / Library Control Sheet / Grid Optimizer
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      2.2
+// @version      2.3
 // @description  Print Manual Review Report + Library Control Sheet + cached part-number search + edit-page helpers for Documentations
 // @match        https://bristow-app.azurewebsites.net/Catalog/Documentations*
 // @noframes
@@ -193,6 +193,7 @@
     function clearFilters() {
         var g = grid();
         if (!g) return;
+        try { g.dataSource.filter([]); } catch (e) {}
         if (_allRecords) applyRecords(g, _allRecords);
         ensureLocationFilter(g);
         var search = document.getElementById('DocumentationSearch');
