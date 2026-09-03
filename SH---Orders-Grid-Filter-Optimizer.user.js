@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - Orders Grid Filter Optimizer
 // @namespace    http://tampermonkey.net/
-// @version      7.2
+// @version      7.3
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @description  WIP, Print, Clear buttons. Defaults filters to contains.
@@ -159,12 +159,14 @@
 
         g.bind('filterMenuInit', function (e) {
             try {
-                if (e.field === 'OrderStatus') {
-                    var ddl = e.container.find('[data-role="dropdownlist"]').first().data('kendoDropDownList');
-                    if (ddl) {
+                var ddl = e.container.find('[data-role="dropdownlist"]').first().data('kendoDropDownList');
+                if (ddl) {
+                    if (e.field === 'OrderStatus') {
                         ddl.value('eq');
-                        ddl.trigger('change');
+                    } else {
+                        ddl.value('contains');
                     }
+                    ddl.trigger('change');
                 }
             } catch (err) {}
         });
