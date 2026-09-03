@@ -320,7 +320,7 @@
         var today = new Date();
         today.setHours(0, 0, 0, 0);
         var endDate = new Date(today);
-        endDate.setDate(endDate.getDate() + 45);
+        endDate.setDate(endDate.getDate() + 60);
 
         var all = ds.data();
 
@@ -432,7 +432,7 @@
         h += '<div class="header">';
         h += '<div class="header-left">';
         h += '<h1>Bristow Instruments</h1>';
-        h += '<h2>Manual Review Report (45 Day Window)</h2>';
+        h += '<h2>Manual Review Report (60 Day Window)</h2>';
         h += '</div>';
         h += '<div class="header-right">';
         h += '<div class="date">' + dateStr + '</div>';
