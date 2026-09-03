@@ -159,10 +159,12 @@
 
         g.bind('filterMenuInit', function (e) {
             try {
-                var ddl = e.container.find('[data-role="dropdownlist"]').first().data('kendoDropDownList');
-                if (ddl) {
-                    ddl.value('contains');
-                    ddl.trigger('change');
+                if (e.field === 'OrderStatus') {
+                    var ddl = e.container.find('[data-role="dropdownlist"]').first().data('kendoDropDownList');
+                    if (ddl) {
+                        ddl.value('eq');
+                        ddl.trigger('change');
+                    }
                 }
             } catch (err) {}
         });
