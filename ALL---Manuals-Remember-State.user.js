@@ -6,7 +6,7 @@
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Manuals-Remember-State.user.js
 // @description  Default expanded, remembers collapse state, re-applies state on re-renders (e.g. after Save button click)
 // @require      https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Shared-Core.user.js
-// @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net//Orders/Orders/Edit*
+// @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
 // @tag          ALL
 // ==/UserScript==
