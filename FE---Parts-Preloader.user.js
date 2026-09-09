@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FE - Parts Preloader
 // @namespace    http://tampermonkey.net/
-// @version 4.4
+// @version      4.5
 // @description  Caches full parts dataset in IndexedDB — instant load after first fetch
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Parts-Preloader.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Parts-Preloader.user.js
