@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         FE - Net 0 Customer Warning
 // @namespace    https://github.com/Bristow-Scripts/bristow-scripts
-// @version      1.3
+// @version 1.4
 // @description  Fetches customer company page and highlights the order info panel if payment terms are Net 0
-// @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
+// @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
 // @grant        GM_xmlhttpRequest
-// @connect      bristow-app.azurewebsites.net
+// @connect      liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Net-0-Customer-Warning.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Net-0-Customer-Warning.user.js
 // @tag          FE
@@ -56,7 +56,7 @@
     }
 
     function fetchAndApply(href) {
-        const fullUrl = 'https://bristow-app.azurewebsites.net' + href;
+        const fullUrl = 'https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net' + href;
         GM_xmlhttpRequest({
             method: 'GET',
             url: fullUrl,
