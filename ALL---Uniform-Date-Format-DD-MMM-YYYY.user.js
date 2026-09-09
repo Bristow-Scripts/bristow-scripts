@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALL - Uniform Date Format (DD-MMM-YYYY)
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version 1.4
+// @version      1.5
 // @description  Reformats all visible dates on the page to DD-MMM-YYYY
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @noframes
