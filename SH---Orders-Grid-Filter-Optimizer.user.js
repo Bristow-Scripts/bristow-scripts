@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - Orders Grid Filter Optimizer
 // @namespace    http://tampermonkey.net/
-// @version      7.5
+// @version      7.6
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @description  WIP, Print, Clear buttons. Defaults filters to contains.
