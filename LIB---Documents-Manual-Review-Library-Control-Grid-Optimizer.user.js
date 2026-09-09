@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         LIB - Documents - Manual Review Report / Library Control Sheet / Grid Optimizer
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      2.4
+// @version 2.5
 // @description  Print Manual Review Report + Library Control Sheet + cached part-number search + edit-page helpers for Documentations
-// @match        https://bristow-app.azurewebsites.net/Catalog/Documentations*
+// @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Catalog/Documentations*
 // @noframes
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---Documents-Manual-Review-Library-Control-Grid-Optimizer.user.js
