@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FE - Manuals Section Collapsed Default
 // @namespace    http://tampermonkey.net/
-// @version 1.9
+// @version      2.0
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Manuals-Section-Collapsed-Default.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Manuals-Section-Collapsed-Default.user.js
 // @description  Re-injects collapse after DOM refresh (Kendo/Razor safe)
