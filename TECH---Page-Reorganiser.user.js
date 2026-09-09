@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      7.1
+// @version      7.2
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @noframes
@@ -1005,7 +1005,7 @@
                     if (hb) hb.click();
                 }, 100);
                 setTimeout(function(){
-                    var lb = document.querySelector('button[onclick*="saveLines"], button[title="Save Lines"]');
+                    var lb = document.getElementById('saveOrder') || document.querySelector('button[onclick*="saveAllOrderChanges"]');
                     if (lb) lb.click();
                 }, 600);
             }
