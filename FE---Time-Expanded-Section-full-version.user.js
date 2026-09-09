@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FE - Time Expanded Section full version
 // @namespace    http://tampermonkey.net/
-// @version 1.5
+// @version      1.6
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Time-Expanded-Section-full-version.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Time-Expanded-Section-full-version.user.js
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
