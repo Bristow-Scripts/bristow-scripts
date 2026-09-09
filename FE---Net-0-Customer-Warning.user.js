@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FE - Net 0 Customer Warning
 // @namespace    https://github.com/Bristow-Scripts/bristow-scripts
-// @version 1.4
+// @version      1.5
 // @description  Fetches customer company page and highlights the order info panel if payment terms are Net 0
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
 // @grant        GM_xmlhttpRequest
