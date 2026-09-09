@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Shared Core
 // @namespace    http://tampermonkey.net/
-// @version 1.3
+// @version      1.4
 // @description  Shared utilities for all TECH scripts — observer manager, polling, DOM helpers, iframe access
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Shared-Core.user.js
