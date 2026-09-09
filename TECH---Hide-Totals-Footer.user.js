@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Hide Totals Footer
 // @namespace    http://tampermonkey.net/
-// @version 1.8
+// @version      1.9
 // @description  Hides totals section via CSS only
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Jobs/Edit*
