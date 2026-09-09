@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALL - Library Control Sheet Print
 // @namespace    http://tampermonkey.net/
-// @version 1.4
+// @version      1.5
 // @description  Retired — replaced by LIB - Document / Library Control
 // @author       You
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Catalog/Documentations/EditDocumentation*
