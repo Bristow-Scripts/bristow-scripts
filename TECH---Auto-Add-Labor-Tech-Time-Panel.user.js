@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Expanded / Auto Labor / Time Panel
 // @namespace    http://tampermonkey.net/
-// @version 9.8
+// @version      9.9
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @description  Uses TechShared core for observer management, polling, and DOM helpers.
