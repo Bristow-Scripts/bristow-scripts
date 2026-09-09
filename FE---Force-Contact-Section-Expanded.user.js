@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         FE - Force Contact Section Expanded
-// @version      1.2
+// @version      1.3
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Force-Contact-Section-Expanded.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Force-Contact-Section-Expanded.user.js
 // @description  Keep Contact section always expanded
-// @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net//Orders/Orders/Edit*
+// @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
 // @tag          FE
 // ==/UserScript==
