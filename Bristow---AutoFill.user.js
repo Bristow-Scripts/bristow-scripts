@@ -6,7 +6,7 @@
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---AutoFill.user.js
 // @description  Type /wip to fully automate starting a work order: status, docs, text, parts, tools, save.
 // @author       You
-// @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net//Orders/Orders/Edit*
+// @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
 // ==/UserScript==
 
