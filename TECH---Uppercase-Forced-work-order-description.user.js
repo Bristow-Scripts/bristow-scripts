@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         TECH - Uppercase Forced work order description
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version 1.7
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Uppercase-Forced-work-order-description.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Uppercase-Forced-work-order-description.user.js
-// @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
+// @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
 // @tag          TECH
 // ==/UserScript==
