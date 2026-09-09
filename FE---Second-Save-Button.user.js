@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         FE - Second Save Button
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version 1.6
 // @description  Adds back the missing second Save button in the header
-// @match        https://bristow-app.azurewebsites.net/Orders/Orders/Edit*
+// @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
 // @tag          FE
 // ==/UserScript==
