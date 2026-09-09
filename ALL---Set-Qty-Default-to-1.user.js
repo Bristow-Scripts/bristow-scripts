@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALL - Set Qty Default to 1
 // @version      2.8
-// @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net//Orders/Orders/Edit*
+// @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Set-Qty-Default-to-1.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Set-Qty-Default-to-1.user.js
 // @grant        none
