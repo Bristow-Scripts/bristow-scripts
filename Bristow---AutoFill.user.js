@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bristow - Auto-Fill
 // @namespace    http://tampermonkey.net/
-// @version      6.9
+// @version      7.4
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---Auto-Fill.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---AutoFill.user.js
 // @description  Type /wip to fully automate starting a work order: status, docs, text, parts, tools, save.
@@ -1197,7 +1197,18 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
   }
 
   async function runCompleteOrder(workPerformedValue) {
+    const INSP_WIN = 'bristowInspection';
     try {
+      // Grab inspection URL BEFORE any long async work (a reload during save
+      // would otherwise kill the script before we can navigate the tab).
+      const additionalSection = document.getElementById('collapseAdditional');
+      if (additionalSection && !additionalSection.classList.contains('in')) {
+        const toggle = document.querySelector('[data-target="#collapseAdditional"]');
+        if (toggle) toggle.click();
+        await sleep(400);
+      }
+      const inspectionHref = document.querySelector('a[href*="Optional_Report7"]')?.href;
+
       showProgress('Step 1/5: Entering edit mode...');
       const editOk = await clickEditInfo();
       if (!editOk) return;
@@ -1268,22 +1279,19 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
       }
       await sleep(300);
 
-      // Grab inspection URL before saving
-      const additionalSection = document.getElementById('collapseAdditional');
-      if (additionalSection && !additionalSection.classList.contains('in')) {
-        const toggle = document.querySelector('[data-target="#collapseAdditional"]');
-        if (toggle) toggle.click();
-        await sleep(400);
-      }
-      const inspectionHref = document.querySelector('a[href*="Optional_Report7"]')?.href;
+      // Reserve the new tab just before saving — late enough that it barely
+      // shows, but still within the browser's ~5s popup-authorization window
+      // (the PDF itself loads only after the save).
+      window.open('', INSP_WIN);
 
       showProgress('Saving...');
       await saveOrderHeader();
       await sleep(1200);
 
-      if (inspectionHref) {
-        window.open(inspectionHref, '_blank');
-      }
+      // Load the inspection PDF into the reserved tab at the very end, after
+      // everything is saved (same window name = re-uses the already-open tab).
+      if (inspectionHref) window.open(inspectionHref, INSP_WIN);
+      else showToast('⚠️ Inspection link not found on page', 'orange');
 
       showToast('✅ Work Order Complete!\nInspection PDF opened for printing.', 'green');
 
