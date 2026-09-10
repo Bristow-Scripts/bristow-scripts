@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bristow - Auto-Fill
 // @namespace    http://tampermonkey.net/
-// @version      7.4
+// @version      7.5
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---Auto-Fill.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---AutoFill.user.js
 // @description  Type /wip to fully automate starting a work order: status, docs, text, parts, tools, save.
@@ -763,7 +763,7 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
       display:block;margin-top:2px;`;
 
     function anchorWipButton() {
-      const titleLabel = document.querySelector('label.custom-h3');
+      const titleLabel = document.querySelector('.custom-h3');
       if (titleLabel) {
         const firstLink = titleLabel.querySelector('a');
         if (firstLink) {
@@ -1073,7 +1073,7 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
       display:inline-block;margin-left:8px;vertical-align:middle;`;
     completeBtn.addEventListener('click', showCompleteChecklist);
 
-    const titleLabel = document.querySelector('label.custom-h3');
+    const titleLabel = document.querySelector('.custom-h3');
     if (titleLabel) {
       const firstLink = titleLabel.querySelector('a');
       if (firstLink) titleLabel.insertBefore(completeBtn, firstLink);
