@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bristow - Auto-Fill
 // @namespace    http://tampermonkey.net/
-// @version      6.8
+// @version      6.9
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---Auto-Fill.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---AutoFill.user.js
 // @description  Type /wip to fully automate starting a work order: status, docs, text, parts, tools, save.
@@ -598,8 +598,14 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
   // STEP 9 — Save order header
   // ═══════════════════════════════════════════════════════
   async function saveOrderHeader() {
+    // New universal save button first (id=saveOrder / saveAllOrderChanges), then legacy saves
+    let saveBtn = document.getElementById('saveOrder');
+    if (saveBtn) { saveBtn.click(); await sleep(800); return true; }
+    saveBtn = [...document.querySelectorAll('button.btn-primary, button.btn-success')]
+      .find(b => (b.getAttribute('onclick') || '').includes('saveAllOrderChanges'));
+    if (saveBtn) { saveBtn.click(); await sleep(800); return true; }
     // Try saveOrderHeader first (header save), then saveLines (line save)
-    let saveBtn = [...document.querySelectorAll('button.btn-success')]
+    saveBtn = [...document.querySelectorAll('button.btn-success')]
       .find(b => (b.getAttribute('onclick') || '').includes('saveOrderHeader'));
     if (!saveBtn) {
       saveBtn = [...document.querySelectorAll('button.btn-success')]
