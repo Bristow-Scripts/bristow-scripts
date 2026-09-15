@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      7.7
+// @version      7.8
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing.
 // @author       You
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
@@ -290,6 +290,28 @@
     }
     function loadGaugeSpecs(textareaId) {
         try { const s = localStorage.getItem('cal_specs_' + textareaId); return s ? JSON.parse(s) : null; } catch(e) { return null; }
+    }
+
+    // ── localStorage helpers for remembered serial port + baud ────────────────
+    // Remembers which physical tester was last connected (by USB vendor/product
+    // ID) and what baud was used, so auto-reconnect on the next page load can
+    // find and reopen the right port without the user picking it again.
+    function saveLastPort(port) {
+        try {
+            if (port && port.getInfo) {
+                const info = port.getInfo();
+                localStorage.setItem('cal_last_port', JSON.stringify({ vendorId: info.usbVendorId, productId: info.usbProductId }));
+            }
+        } catch(e) {}
+    }
+    function loadLastPortInfo() {
+        try { const s = localStorage.getItem('cal_last_port'); return s ? JSON.parse(s) : null; } catch(e) { return null; }
+    }
+    function saveBaud(baud) {
+        try { localStorage.setItem('cal_serial_baud', String(baud)); } catch(e) {}
+    }
+    function loadSavedBaud() {
+        try { return parseInt(localStorage.getItem('cal_serial_baud'), 10) || 9600; } catch(e) { return 9600; }
     }
 
     // ── localStorage helpers for column layout (card labels, sheet labels, roles, mode) ──
@@ -1718,7 +1740,17 @@
     // driver gets a clean handoff.
     window.addEventListener('pagehide', () => {
         try { if (serialReader) serialReader.cancel(); } catch (e) {}
+        try { if (serialPort) saveLastPort(serialPort); } catch (e) {}
         try { if (serialPort && serialPort.readable) serialPort.close(); } catch (e) {}
+    });
+
+    // Reconnect when the user tabs back to this window — the USB-serial adapter
+    // can drop its link while the tab is hidden (OS power management, adapter
+    // being unplugged/replugged), so re-attempt on focus.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            tryAutoReconnectSerial();
+        }
     });
 
     // Appends a Connect button + baud field + status text into a table's own
@@ -1729,16 +1761,21 @@
     function attachSerialControls(actions) {
         const wrap = document.createElement('span');
         wrap.className = 'cal-serial-controls';
+        const savedBaud = loadSavedBaud();
+        const isConnected = !!(serialPort && serialPort.readable);
+        const statusText = isConnected ? 'Connected — click a UUT cell, then pull the wrench' : 'Not connected';
+        const statusClass = 'cal-serial-status cal-hint' + (isConnected ? ' good' : '');
         wrap.innerHTML = `
             <span class="cal-hint">Tester:</span>
-            <input class="cal-col-input cal-serial-baud" type="text" value="9600" title="Baud rate — match the tester's SETUP > SERIAL PORT setting (Norbar factory default is 9600)">
-            <button class="cal-btn cal-btn-col-add cal-serial-connect-btn" type="button">Connect</button>
-            <span class="cal-serial-status cal-hint">Not connected</span>
+            <input class="cal-col-input cal-serial-baud" type="text" value="${savedBaud}" title="Baud rate — match the tester's SETUP > SERIAL PORT setting (Norbar factory default is 9600)">
+            <button class="cal-btn cal-btn-col-add cal-serial-connect-btn" type="button">${isConnected ? 'Reconnect' : 'Connect'}</button>
+            <span class="${statusClass}">${statusText}</span>
         `;
         actions.appendChild(wrap);
 
         const baudInp = wrap.querySelector('.cal-serial-baud');
         baudInp.addEventListener('input', () => {
+            saveBaud(baudInp.value);
             document.querySelectorAll('.cal-serial-baud').forEach(el => { if (el !== baudInp) el.value = baudInp.value; });
         });
         wrap.querySelector('.cal-serial-connect-btn').addEventListener('click', connectSerial);
@@ -1776,6 +1813,7 @@
             // settings can drift from factory defaults over a unit's life.
             await serialPort.open({ baudRate: getBaud(), dataBits: 8, stopBits: 2, parity: 'none' });
             setSerialStatus('Connected — click a UUT cell, then pull the wrench', true);
+            saveLastPort(serialPort);
             readSerialLoop();
         } catch (err) {
             if (!isRetry) {
@@ -1794,6 +1832,9 @@
             el.textContent = text;
             el.classList.toggle('good', !!good);
         });
+        document.querySelectorAll('.cal-serial-connect-btn').forEach(el => {
+            el.textContent = good ? 'Reconnect' : 'Connect';
+        });
     }
 
     // Auto-reopen of a previously authorized port.  Runs after every
@@ -1806,8 +1847,30 @@
         if (openSerialInProgress) return;
         // Already connected — skip
         if (serialPort && serialPort.readable) return;
+        // Show a brief "remembered" status so users know auto-reconnect is happening
+        setSerialStatus('Remembered port — reconnecting…', false);
         navigator.serial.getPorts().then(ports => {
-            if (ports.length) { serialPort = ports[0]; openSerial(); }
+            if (!ports.length) {
+                setSerialStatus('Not connected', false);
+                return;
+            }
+            // Try to open exactly the last-used tester (matched by USB IDs) so a
+            // user with several USB-serial adapters plugged in always reconnects
+            // to the same physical unit.
+            const saved = loadLastPortInfo();
+            if (saved && saved.vendorId != null) {
+                const match = ports.find(p => {
+                    try {
+                        const info = p.getInfo();
+                        return info.usbVendorId === saved.vendorId && info.usbProductId === saved.productId;
+                    } catch (e) { return false; }
+                });
+                if (match) { serialPort = match; openSerial(); return; }
+            }
+            serialPort = ports[0];
+            openSerial();
+        }).catch(() => {
+            setSerialStatus('Not connected', false);
         });
     }
 
