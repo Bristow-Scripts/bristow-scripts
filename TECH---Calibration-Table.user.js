@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      7.8
+// @version      7.9
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing.
 // @author       You
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
@@ -802,11 +802,19 @@
             // to a gauge. Card mode keeps its normal labeled + gauge-spec output.
             const activeLabels = group.viewMode === 'sheet' ? sheetCols.map((c, ci) => c || colLetter(ci)) : cardDisplayLabels();
             const specsForSave = group.viewMode === 'sheet' ? null : gaugeSpecs;
-            ta.value = hasAnyData() ? serialize(resolved, activeLabels, null, null, null, null, specsForSave) : '';
+            const newValue = hasAnyData() ? serialize(resolved, activeLabels, null, null, null, null, specsForSave) : '';
+            const changed = ta.value !== newValue;
+            ta.value = newValue;
             saveGaugeSpecs(resolvedId, gaugeSpecs);
             persistLayout();
-            ta.dispatchEvent(new Event('change', { bubbles: true }));
-            ta.dispatchEvent(new Event('input',  { bubbles: true }));
+            // Only announce a real value change. Dispatching bubbling change/input
+            // on EVERY sync (including a blur with no edit) makes page-level
+            // handlers fire constantly and feeds back into the mutation observer,
+            // which on heavy pages can lock the tab up.
+            if (changed) {
+                ta.dispatchEvent(new Event('change', { bubbles: true }));
+                ta.dispatchEvent(new Event('input',  { bubbles: true }));
+            }
             _isSyncing = false;
         }
 
@@ -1940,9 +1948,48 @@
         }, 60);
     }
 
-    const observer = new MutationObserver(tryBuildAll);
+    // Debounce the observer callback AND filter mutations to only the ones
+    // that matter. On this page the Kendo grids (parts grid with ~80k records,
+    // service grid, comment grid), the accordion sections, the injected note
+    // rows, badges, and iframe fire hundreds of DOM mutations while loading and
+    // while the user interacts. Running tryBuildAll() on every one of those —
+    // even debounced — starves the main thread. We only rebuild when a mutation
+    // touches one of our textareas or a .cal-wrapper, so grid/line/comment/
+    // iframe churn never reaches tryBuildAll() at all.
+    let _buildTimer = null;
+    const observer = new MutationObserver(mutations => {
+        const calIds = TABLES.map(cfg => resolveTextareaId(cfg));
+        const relevant = mutations.some(m => {
+            const target = m.target;
+            if (target && target.nodeType === 1 && target.closest && target.closest('.cal-wrapper')) return true;
+            const nodes = [];
+            if (m.addedNodes && m.addedNodes.length) nodes.push.apply(nodes, m.addedNodes);
+            if (m.removedNodes && m.removedNodes.length) nodes.push.apply(nodes, m.removedNodes);
+            return nodes.some(n => {
+                if (!n || n.nodeType !== 1) return false;
+                if (n.classList && n.classList.contains('cal-wrapper')) return true;
+                if (n.id && calIds.indexOf(n.id) !== -1) return true;
+                if (calIds.length && n.querySelector) {
+                    return n.querySelector(calIds.map(id => '#' + id).join(',')) !== null;
+                }
+                return false;
+            });
+        });
+        if (!relevant) return;
+        clearTimeout(_buildTimer);
+        _buildTimer = setTimeout(tryBuildAll, 300);
+    });
     observer.observe(document.body, { childList: true, subtree: true });
     tryBuildAll();
+
+    // Throttle serial auto-reconnect so a burst of observer callbacks (or the
+    // rebuilt debounce above firing) doesn't queue up a pile of getPorts()
+    // lookups in the same tick.
+    let _reconnectTimer = null;
+    function scheduleAutoReconnect() {
+        clearTimeout(_reconnectTimer);
+        _reconnectTimer = setTimeout(tryAutoReconnectSerial, 500);
+    }
 
     function tryBuildAll() {
         const allFound = TABLES.every(config => document.getElementById(resolveTextareaId(config)));
@@ -1966,7 +2013,7 @@
             }
             buildWidget(config);
         });
-        tryAutoReconnectSerial();
+        scheduleAutoReconnect();
     }
 
 })();
