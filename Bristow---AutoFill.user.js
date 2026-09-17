@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bristow - Auto-Fill
 // @namespace    http://tampermonkey.net/
-// @version      7.5
+// @version      7.9
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---Auto-Fill.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---AutoFill.user.js
 // @description  Type /wip to fully automate starting a work order: status, docs, text, parts, tools, save.
@@ -218,20 +218,47 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
     },
   };
 
+  // Fallback template used when no manual is selected or no template matches.
+  const GENERIC_TEMPLATE = {
+    rank: 0,
+    description: 'NO MATCHING MANUAL — GENERIC',
+    workOrderDesc: `WORK PERFORMED:
+DATA: SEE ATTACHED
+AIRWORTHINESS DIRECTIVE: NONE | LIST OF MODS: NONE | SERVICE DIFFICULTY REPORT: NO | TOOL CONTROL FORM: YES , NO , ATT | PARTS CONTROL FORM: YES , NO , ATT | ADDITIONAL WORK ASSESSMENT FORM: NO
+WORK PERFORMED IN ACCORDANCE WITH BRISTOW MPM USING APPROVED LIBRARY DOCUMENTS AND APPLICABLE ADS.
+REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
+    internalSnag: '',
+    tools: [],
+    parts: [],
+  };
+
   // ═══════════════════════════════════════════════════════
   // STORAGE
   // ═══════════════════════════════════════════════════════
   function loadTemplates() {
+    const defaultClone = () => Object.assign({}, DEFAULT_TEMPLATES);
+    const cleaned = defaultClone();
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return Object.assign({}, DEFAULT_TEMPLATES, parsed);
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          let keptAny = false;
+          for (const key of Object.keys(parsed)) {
+            const val = parsed[key];
+            const usable = val && typeof val === 'object' && !Array.isArray(val)
+              && Object.keys(val).some(f => val[f] !== undefined && val[f] !== null && val[f] !== '');
+            if (usable) { cleaned[key] = val; keptAny = true; }
+          }
+          if (keptAny) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
+            return cleaned;
+          }
+        }
       }
-      const seed = Object.assign({}, DEFAULT_TEMPLATES);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
-      return seed;
-    } catch (e) { return Object.assign({}, DEFAULT_TEMPLATES); }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
+      return cleaned;
+    } catch (e) { return defaultClone(); }
   }
   function saveTemplates(data) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -271,7 +298,7 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
     for (const row of docRows) {
       const selectedCell = row.querySelector('[aria-colindex="2"]');
       if (!selectedCell) continue;
-      if (selectedCell.innerText.trim().toLowerCase() !== 'true') continue;
+      if (selectedCell.textContent.trim().toLowerCase() !== 'true') continue;
 
       const filenameCell = row.querySelector('[aria-colindex="4"]');
       if (filenameCell) {
@@ -335,6 +362,8 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
       const k = normalizeForMatch(key);
       if (nameNorm.includes(k) || k.includes(nameNorm)) return { key, tpl: templates[key] };
     }
+
+    if (DEFAULT_TEMPLATES[name]) return { key: name, tpl: DEFAULT_TEMPLATES[name] };
 
     return null;
   }
@@ -637,43 +666,36 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
   }
 
   async function runWip(forcedKey = null) {
-    if (wipRunning) { showToast('⚠️ /wip already running...', 'orange'); return; }
+    if (forcedKey && typeof forcedKey !== 'string') forcedKey = null;
+    if (wipRunning) { showToast('⚠️ /wip already running...', 'orange'); return false; }
     wipRunning = true;
 
     try {
       const currentOrderId = (document.getElementById('orderId') || {}).value || location.href;
       if (isOrderProcessed(currentOrderId)) {
         const confirmed = confirm('⚠️ /wip has already been run on this order.\n\nRunning it again will duplicate parts and re-fill fields.\n\nAre you sure you want to continue?');
-        if (!confirmed) return;
+        if (!confirmed) return false;
       }
 
-      let templateKey;
-      if (forcedKey) {
-        templateKey = forcedKey;
-      } else {
-        templateKey = getSelectedManualNumber();
-        if (!templateKey) {
-          showToast('⚠️ Could not find a selected manual or instrument name.\nMake sure a manual is selected (green ✓ button) in the Manuals section.', 'orange');
-          return;
-        }
+      const templateKey = forcedKey || getSelectedManualNumber();
+      if (!templateKey) {
+        showToast('⚠️ Could not find a selected manual or instrument name.\nMake sure a manual is selected (green ✓ button) in the Manuals section.', 'orange');
+        return false;
       }
 
       const match = findTemplate(templateKey);
-      if (!match) {
-        const manualNum = getSelectedManualNumber();
-        const hint = manualNum
-          ? `Manual: ${manualNum}\n\nClick 📋 Manage Templates and add a template with key "${manualNum}".`
-          : `Instrument: ${templateKey}\n\nClick 📋 Manage Templates to add one.`;
-        showToast(`⚠️ No template found.\n${hint}`, 'orange');
-        return;
-      }
+      console.log('[WIP] runWip | templateKey:', templateKey, '| match:', match ? match.key : null, '| stored keys:', Object.keys(loadTemplates()));
 
-      const tpl = match.tpl;
-      showToast(`🚀 Starting /wip for:\n${match.key}`, 'blue');
+      const tpl   = match ? match.tpl : GENERIC_TEMPLATE;
+      const label = match ? match.key : `GENERIC (no template for "${templateKey}")`;
+      const usingGeneric = tpl === GENERIC_TEMPLATE;
+      showToast(usingGeneric
+        ? `⚠️ No template found — using GENERIC.\n${label}`
+        : `🚀 Starting /wip for:\n${label}`, usingGeneric ? 'orange' : 'blue');
 
       showProgress('Step 1/8: Entering edit mode...');
       const editOk = await clickEditInfo();
-      if (!editOk) return;
+      if (!editOk) return false;
       await sleep(STEP_DELAY);
 
       showProgress('Step 2/8: Setting status to Work in Progress...');
@@ -703,10 +725,12 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
 
       markOrderProcessed(currentOrderId);
       showToast(`✅ /wip complete!\n\nReview and:\n• Edit description if needed\n• Delete unused parts\n• Change the 2 dropdowns\n• Select completion date\n• Print inspection page`, 'green');
+      return true;
 
     } catch (err) {
       showToast(`⚠️ Error during /wip:\n${err.message}`, 'orange');
       console.error('[WIP]', err);
+      return false;
     } finally {
       wipRunning = false;
     }
@@ -744,7 +768,7 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
       border-radius:5px;cursor:pointer;font-family:monospace;font-size:12px;font-weight:bold;
       box-shadow:0 2px 6px rgba(0,0,0,0.3);white-space:nowrap;
       display:inline-block;margin-left:10px;vertical-align:middle;`;
-    wipBtn.addEventListener('click', runWip);
+    wipBtn.addEventListener('click', () => runWip());
 
     const manageBtn = document.createElement('button');
     manageBtn.id = 'wip-manage-btn';
@@ -1071,7 +1095,13 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
       border-radius:5px;cursor:pointer;font-family:monospace;font-size:12px;font-weight:bold;
       box-shadow:0 2px 6px rgba(0,0,0,0.3);white-space:nowrap;
       display:inline-block;margin-left:8px;vertical-align:middle;`;
-    completeBtn.addEventListener('click', showCompleteChecklist);
+    completeBtn.addEventListener('click', async () => {
+      const orderId = (document.getElementById('orderId') || {}).value || location.href;
+      if (isOrderProcessed(orderId)) { showCompleteChecklist(); return; }
+      showToast('⚠️ WIP has not been run yet.\nRunning it automatically first...', 'orange');
+      const ok = await runWip();
+      if (ok) showCompleteChecklist();
+    });
 
     const titleLabel = document.querySelector('.custom-h3');
     if (titleLabel) {
