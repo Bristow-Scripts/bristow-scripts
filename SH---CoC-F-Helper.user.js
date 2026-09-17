@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - CoC-F Helper
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      3.6
+// @version      3.8
 // @description  Report guards for shipping: CoC auto-fills/stamps dates; CoC/Sub CoC/Form 1 grayed by Work Performed & Cost Center (dropdown); CoC & Form 1 blocked until a manual is Selected and not expired; Form 1 adds CARs 571 remarks with Unit Certified to prompt, Bell Helicopters REV, blocks on Part No./Description mismatch and missing manual Revision Info.
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @noframes
@@ -894,6 +894,31 @@
         }, 300);
     }
 
+    // If the app is already in edit mode, persist any pending changes BEFORE
+    // running a report flow - otherwise opening the PDF discards them. Once save
+    // returns to view mode, re-dispatch the click so the flow runs exactly as it
+    // would for a normal (non-edit) click.
+    function saveCurrentChangesThen(link, next) {
+        refreshTargets();
+        var btn = getSaveButton();
+        if (!btn) { next(); return; }
+        btn.click();
+        var tries = 0;
+        var timer = setInterval(function () {
+            tries++;
+            refreshTargets();
+            if (!fieldsAreEditable()) {
+                clearInterval(timer);
+                next();
+                return;
+            }
+            if (tries >= 40) {
+                clearInterval(timer);
+                next();
+            }
+        }, 300);
+    }
+
     // ── CoC flow ──
     function doCoCFlow(link) {
         refreshTargets();
@@ -1056,6 +1081,23 @@
     // stopImmediatePropagation() whenever it handles a report click.
     function handleReportClick(e, rep, link) {
         refreshTargets();
+        // Already in edit mode: save the current changes first, then continue the
+        // flow as normal. We re-dispatch a fresh click on the live link so the
+        // flow behaves identically to a click made in view mode. _shpPostSave
+        // guards against looping if the save fails and the app stays in edit mode.
+        if (fieldsAreEditable() && !e._shpPostSave) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            var href = link ? link.getAttribute('href') : '';
+            saveCurrentChangesThen(link, function () {
+                var live = (link && link.isConnected) ? link : findLiveLink(href);
+                if (!live) return;
+                var ev = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+                ev._shpPostSave = true;
+                live.dispatchEvent(ev);
+            });
+            return;
+        }
         if (rep.flow === 'form1' && CoC.partNumberCheck.pending) {
             e.preventDefault();
             e.stopImmediatePropagation();
