@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      7.2
+// @version      7.3
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @noframes
@@ -206,6 +206,7 @@
 
         if (isTechPage) {
             css.push(HIDDEN_HREF_FRAGMENTS.map(function(f){ return 'a[href*="' + f + '"]' }).join(',') + ' { display: none !important; }');
+            css.push('a.btn-sm[href*="/ScheduleEvents"],a.btn-sm[href*="/OrderLineBreakdownReport"],.print-options-button { display: none !important; }');
             css.push('button[onclick*="openAdvanceSelectByOption"],a.btn-success[href="#AddPartTarget"],a[href*="handler=Template"],button[onclick*="importWizard"],button[onclick*="addPartFromSearch"],button[onclick*="lockComponents"] { display: none !important; }');
             css.push('.row.content-group:has(a[data-target="#collapseRQs"]),.row.content-group:has(a[data-target="#collapseCustomerDocs"]) { display: none !important; }');
             css.push('a[href="#RQsTarget"] { display: none !important; }');
