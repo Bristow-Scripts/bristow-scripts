@@ -17,7 +17,7 @@ Auto-updating userscripts for the Bristow app.
 
 | Script | Description |
 |--------|-------------|
-| [Floating Text Blaze Box](ALL---Floating-Text-Blaze-Box.user.js) | Adds a small floating text box in the toolbar for pasting Text Blaze macros. Type your shortcut and let Text Blaze expand it. No auto-update. |
+| [Floating Text Blaze Box](ALL---Floating-Text-Blaze-Box.user.js) | Adds a small floating text box in the toolbar for pasting Text Blaze macros. No auto-update. |
 | [Set Qty Default to 1](ALL---Set-Qty-Default-to-1.user.js) | When adding parts or services, quantity defaults to 1 instead of 0. |
 | [Manuals Remember State](ALL---Manuals-Remember-State.user.js) | The Manuals section remembers whether you left it open or closed, even after saving or editing the order. |
 | [Uniform Date Format (DD-MMM-YYYY)](ALL---Uniform-Date-Format-DD-MMM-YYYY.user.js) | Reformats all visible dates on the page to DD-MMM-YYYY format, including Kendo datepickers and grid cells, keeping the format consistent as you pick dates. |
