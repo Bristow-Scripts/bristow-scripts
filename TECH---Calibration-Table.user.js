@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      7.9
+// @version      7.10
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing.
 // @author       You
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
@@ -1142,6 +1142,25 @@
         }
 
         // ── CARD VIEW ─────────────────────────────────────────────────────────
+
+        // Shared master→slave "↓ Post" column-copy button. Used by both card and
+        // sheet views so the copy behavior is identical across modes.
+        function makePostBtn(col, ci) {
+            const btn = document.createElement('button');
+            btn.type = 'button'; btn.textContent = '\u2193 Post';
+            btn.title = 'Copy ' + col + ' values to Post Data table';
+            btn.style.cssText = 'font-size:12px;padding:3px 10px;background:#337ab7;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:600;';
+            btn.addEventListener('click', () => {
+                const slave = group.widgets.find(w => w.isSlave);
+                if (!slave) return;
+                // Grow slave rows to match master if needed
+                while (slave._rows.length < rows.length) slave._rows.push(Array(cols.length).fill(''));
+                rows.forEach((masterRow, ri) => { slave._rows[ri][ci] = masterRow[ci] || ''; });
+                slave.render(); slave.sync();
+            });
+            return btn;
+        }
+
         function renderCard() {
             tableWrap.innerHTML = '';
             const table = document.createElement('table');
@@ -1177,7 +1196,10 @@
                 tdDel.appendChild(delBtn);
             });
 
-            // Per-column "↓ Post" buttons — master table only
+            // Per-column "↓ Post" buttons — master table only. Card mode only offers
+            // Post on the test-point / UUT columns (the calculated % ERROR / PASS
+            // columns don't make sense to copy); sheet mode offers it on every
+            // column since sheet cells are free-form.
             if (!isSlave) {
                 const tfoot = document.createElement('tfoot');
                 const ftr = tfoot.insertRow();
@@ -1186,22 +1208,7 @@
                     const ftd = document.createElement('td');
                     ftd.style.cssText = 'text-align:center;padding:2px;border:1px solid #dde3ea;';
                     const r = roles[ci] || '';
-                    const isCopyable = r.startsWith('tp') || r.startsWith('uut');
-                    if (isCopyable) {
-                        const btn = document.createElement('button');
-                        btn.type = 'button'; btn.textContent = '\u2193 Post';
-                        btn.title = 'Copy ' + col + ' values to Post Data table';
-                        btn.style.cssText = 'font-size:12px;padding:3px 10px;background:#337ab7;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:600;';
-                        btn.addEventListener('click', () => {
-                            const slave = group.widgets.find(w => w.isSlave);
-                            if (!slave) return;
-                            // Grow slave rows to match master if needed
-                            while (slave._rows.length < rows.length) slave._rows.push(Array(cols.length).fill(''));
-                            rows.forEach((masterRow, ri) => { slave._rows[ri][ci] = masterRow[ci] || ''; });
-                            slave.render(); slave.sync();
-                        });
-                        ftd.appendChild(btn);
-                    }
+                    if (r.startsWith('tp') || r.startsWith('uut')) ftd.appendChild(makePostBtn(col, ci));
                     ftr.appendChild(ftd);
                 });
                 const ftdDel = document.createElement('td'); ftdDel.style.cssText = 'border:1px solid #dde3ea;'; ftr.appendChild(ftdDel);
@@ -1251,6 +1258,22 @@
                 delBtn.addEventListener('click', () => { group.widgets.forEach(w => w.removeRow(ri)); });
                 tdDel.appendChild(delBtn);
             });
+
+            // Per-column "↓ Post" buttons — master table only, on EVERY column
+            // (sheet mode is free-form, so all columns are copyable, including
+            // columns that would be calculated cells in card mode).
+            if (!isSlave) {
+                const tfoot = table.createTFoot();
+                const ftr = tfoot.insertRow();
+                const ftdNum = document.createElement('td'); ftdNum.className = 'cal-sheet-rownum'; ftr.appendChild(ftdNum);
+                cols.forEach((_, ci) => {
+                    const ftd = document.createElement('td'); ftd.className = 'cal-sheet-cell';
+                    ftd.style.cssText = 'text-align:center;padding:1px;background:#f7f9fb;';
+                    ftd.appendChild(makePostBtn(sheetCols[ci] || colLetter(ci), ci));
+                    ftr.appendChild(ftd);
+                });
+                const ftdDel = document.createElement('td'); ftdDel.className = 'del-col'; ftr.appendChild(ftdDel);
+            }
 
             tableWrap.appendChild(table);
         }
