@@ -1,16 +1,576 @@
 // ==UserScript==
-// @name         TECH - Expanded / Auto Labor / Time Panel
+// @name         TECH - Expanded / Auto Labor / Time Panel + Quick Add Tool
 // @namespace    http://tampermonkey.net/
-// @version      9.9
+// @version      10.0
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
-// @description  Uses TechShared core for observer management, polling, and DOM helpers.
+// @description  TECH Expanded/Auto Labor/Time Panel plus a floating "+ Add Tool" button that opens a search popup to add a tool to the work order without digging through the Documentations catalog.
 // @require      https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Shared-Core.user.js
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
 // @grant        none
 // @tag          TECH
 // @run-at       document-end
 // ==/UserScript==
+
+// =========================================================================
+// QUICK ADD TOOL (WORK ORDER) — merged into TECH Auto Labor / Time Panel
+// =========================================================================
+(function () {
+    'use strict';
+
+    if (location.search.includes('handler=')) return;
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  STATE
+    // ═════════════════════════════════════════════════════════════════════════
+
+    var state = {
+        docId: null,            // resolved Documentation Id for the Selected manual
+        docName: '',            // resolved manual file name, e.g. "5194.pdf"
+        catalogByName: {},      // upper Name -> [catalog records]
+        catalogLoaded: false,
+        tools: [],              // AllTools records
+        docToolKeys: {},        // already-on-manual keys (Id or ToolNumber)
+        addedKeys: {}           // keys added during this session
+    };
+
+    function getToken() {
+        var el = document.querySelector('input[name="__RequestVerificationToken"]');
+        return el ? el.value : '';
+    }
+
+    function toArray(d) {
+        if (Array.isArray(d)) return d;
+        if (d && typeof d === 'object') {
+            if (Array.isArray(d.Data)) return d.Data;
+            if (Array.isArray(d.items)) return d.items;
+            if (Array.isArray(d.rows)) return d.rows;
+            if (Array.isArray(d.list)) return d.list;
+        }
+        return [];
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  CATALOG (file name -> Documentation record)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    var DOC_TYPES = { 'MISC': 0, 'MANUAL': 1, 'AD': 2, 'CRN': 3, 'AQP': 4, 'AML': 5 };
+    var DOC_STATUS = {
+        'ACTIVE': 0, 'NEEDS REVIEW': 1, 'INACTIVE': 2, 'CAIRS': 3, 'TIME SENSITIVE': 4,
+        'MANUFACTURER UNSUPPORTED': 5, 'OEM CONTROLLED (XXXX)': 6, 'REVISION SERVICE (XXX)': 7,
+        'OEM CONTROLLED (KFC)': 8, 'REVISION SERVICE (ECMM)': 9, 'REVISION SERVICE (P&W)': 10,
+        'OEM CONTROLLED (SERV-AERO)': 11, 'TOOL ONLY': 12, 'REVISION SERVICE (SIGMA-TEK)': 13,
+        'REVISION SERVICE (SAFT)': 14, 'REVISION SERVICE (KOLLSMAN)': 15, 'NO CAPABILITY': 16,
+        'REFERENCE ONLY': 17, 'NO ADDITIONAL INFORMATION': 18, 'AS NEEDED': 19, 'CAC LIBRARY': 20
+    };
+
+    function loadCatalog(cb) {
+        cb = cb || function () {};
+        if (state.catalogLoaded) { cb(); return; }
+        fetch('/Catalog/Documentations?handler=Documentations&wRelated=false')
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (d) {
+                var arr = toArray(d);
+                for (var i = 0; i < arr.length; i++) {
+                    var nm = String(arr[i].Name || '').trim().toUpperCase();
+                    if (!nm) continue;
+                    if (!state.catalogByName[nm]) state.catalogByName[nm] = [];
+                    state.catalogByName[nm].push(arr[i]);
+                }
+                state.catalogLoaded = true;
+                console.log('[QuickAddTool] Documentation catalog: ' + arr.length + ' records');
+            })
+            .catch(function (e) {
+                console.log('[QuickAddTool] Catalog error: ' + e.message);
+            })
+            .then(function () { cb(); });
+    }
+
+    function docRecordsForFile(fileName) {
+        var base = String(fileName || '').replace(/\.(?:pdf|docx?|xlsx?|txt|csv)$/i, '').trim();
+        var names = [];
+        var numMatch = /(?:^|[^0-9])([0-9]{1,4})(?:[^0-9]|$)/.exec(base);
+        if (numMatch) {
+            names.push(numMatch[1]);
+            var noLeadZeros = String(parseInt(numMatch[1], 10));
+            if (noLeadZeros !== numMatch[1]) names.push(noLeadZeros);
+        }
+        names.push(base);
+        var stripped = base
+            .replace(/[_-]\s*rev\s*\d+$/i, '')
+            .replace(/\s+rev\s+\d+$/i, '')
+            .replace(/[_-]\s*r\d+$/i, '');
+        if (stripped && stripped !== base) names.push(stripped);
+
+        var seen = {}, out = [];
+        for (var i = 0; i < names.length; i++) {
+            var key = names[i].toUpperCase();
+            if (!key || !state.catalogByName[key]) continue;
+            for (var j = 0; j < state.catalogByName[key].length; j++) {
+                var id = state.catalogByName[key][j].Id;
+                if (id && seen[id]) continue;
+                if (id) seen[id] = true;
+                out.push(state.catalogByName[key][j]);
+            }
+        }
+        return out;
+    }
+
+    function rowHints(link) {
+        var hints = { location: '', docTypeText: '', docStatusText: '' };
+        var row = link.closest('tr');
+        if (!row) return hints;
+        var cells = row.querySelectorAll('td[role="gridcell"]');
+        for (var i = 0; i < cells.length; i++) {
+            var ci = parseInt(cells[i].getAttribute('aria-colindex'), 10);
+            if (!ci) continue;
+            var txt = cells[i].textContent.replace(/[\t\n\r\s]+/g, ' ').trim();
+            if (ci === 5) hints.docTypeText = txt;
+            else if (ci === 6) hints.location = txt;
+            else if (ci === 9) hints.docStatusText = txt;
+        }
+        return hints;
+    }
+
+    function recordScore(rec, hints) {
+        var score = 0;
+        if (hints.location &&
+            String(rec.Location || '').trim().toUpperCase() === hints.location.toUpperCase()) score += 3;
+        if (hints.docTypeText) {
+            var dt = DOC_TYPES[hints.docTypeText.toUpperCase()];
+            if (dt !== undefined && Number(rec.DocType) === dt) score += 2;
+        }
+        if (hints.docStatusText) {
+            var ds = DOC_STATUS[hints.docStatusText.toUpperCase()];
+            if (ds !== undefined && Number(rec.DocStatus) === ds) score += 1;
+        }
+        return score;
+    }
+
+    function pickDocRecord(fileName, hints) {
+        var recs = docRecordsForFile(fileName);
+        if (!recs.length) return null;
+        if (recs.length === 1) return recs[0];
+        var best = recs[0], bestScore = -1;
+        for (var i = 0; i < recs.length; i++) {
+            var s = recordScore(recs[i], hints);
+            if (s > bestScore) { bestScore = s; best = recs[i]; }
+        }
+        return best;
+    }
+
+    function getSelectedDocInfo() {
+        var grid = document.getElementById('aeroDocsGrid');
+        if (!grid) return null;
+        var rows = grid.querySelectorAll('tbody tr');
+        for (var i = 0; i < rows.length; i++) {
+            if (!rows[i].querySelector('button[title="Selected"]')) continue;
+            var link = rows[i].querySelector('a[href*="handler=ViewAeroFile"], a[onclick*="handler=ViewAeroFile"]');
+            if (!link) continue;
+            return { name: (link.textContent || '').trim(), link: link };
+        }
+        return null;
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  TOOL DATA
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function normalizeTool(rec) {
+        var r = rec || {};
+        return {
+            id: String(r.Id || '').trim(),
+            num: String(r.ToolNumber || '').trim(),
+            alt: String(r.AltToolNumber || '').trim(),
+            alt2: String(r.AltToolNumber2 || '').trim(),
+            desc: String(r.Description || '').trim()
+        };
+    }
+
+    function toolKey(t) {
+        return t.id ? 'id:' + t.id : 'num:' + t.num.toUpperCase();
+    }
+
+    function toolMatches(t, terms) {
+        var hay = (t.num + ' ' + t.alt + ' ' + t.alt2 + ' ' + t.desc).toUpperCase();
+        for (var i = 0; i < terms.length; i++) {
+            if (!terms[i] || hay.indexOf(terms[i].toUpperCase()) === -1) return false;
+        }
+        return true;
+    }
+
+    // Tries the AllTools handler; also accepts the plain AeroTools list as a
+    // fallback so the panel still works if AllTools is filtered server-side.
+    function loadAllTools(cb) {
+        cb = cb || function () {};
+        if (state.tools.length) { cb(); return; }
+        var token = getToken();
+        fetch('/Catalog/Documentations/EditDocumentation?handler=AllTools&pageSize=100000', {
+            credentials: 'same-origin',
+            headers: token ? { 'RequestVerificationToken': token } : {}
+        })
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (d) {
+                state.tools = toArray(d).map(normalizeTool);
+                console.log('[QuickAddTool] AllTools: ' + state.tools.length + ' tools loaded');
+                cb();
+            })
+            .catch(function (e) {
+                console.log('[QuickAddTool] AllTools error: ' + e.message);
+                cb();
+            });
+    }
+
+    function loadDocTools(cb) {
+        cb = cb || function () {};
+        if (!state.docId) { cb(); return; }
+        var token = getToken();
+        fetch('/Catalog/Documentations/EditDocumentation?documentationId=' + encodeURIComponent(state.docId) + '&handler=Tools', {
+            credentials: 'same-origin',
+            headers: token ? { 'RequestVerificationToken': token } : {}
+        })
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (d) {
+                state.docToolKeys = {};
+                var arr = toArray(d);
+                for (var i = 0; i < arr.length; i++) {
+                    var t = normalizeTool(arr[i]);
+                    state.docToolKeys[toolKey(t)] = true;
+                }
+                console.log('[QuickAddTool] Manual tools: ' + arr.length + ' linked');
+                cb();
+            })
+            .catch(function (e) {
+                console.log('[QuickAddTool] Manual tools error: ' + e.message);
+                cb();
+            });
+    }
+
+    // Adds a tool to the Selected manual's documentation. Same request the
+    // EditDocumentation "Add" button makes (POST, empty JSON body, token header).
+    function addToolToDoc(docId, toolId) {
+        var token = getToken();
+        return fetch('/Catalog/Documentations/EditDocumentation?handler=AddTool&documentationId=' +
+            encodeURIComponent(docId) + '&toolId=' + encodeURIComponent(toolId), {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                'RequestVerificationToken': token || '',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: ''
+        }).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            if (r.status === 204) return null;
+            return r.text().then(function (t) {
+                try { return t ? JSON.parse(t) : null; } catch (e) { return t; }
+            });
+        });
+    }
+
+    function refreshOrderToolsGrid() {
+        ['aeroToolsGrid', 'orderAeroToolsGrid'].forEach(function (id) {
+            try {
+                var g = window.$ && $('#' + id).data('kendoGrid');
+                if (g && g.dataSource) g.dataSource.read();
+            } catch (e) {}
+        });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  UI — popup (built once on document.body, survives grid re-renders)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    var els = {};
+
+    function toast(msg, isError) {
+        var el = els.status;
+        if (!el) return;
+        el.textContent = msg;
+        el.style.color = isError ? '#c0392b' : '#27ae60';
+        el.style.display = 'block';
+    }
+
+    function renderAddBtn(t) {
+        var key = toolKey(t);
+        var onDoc = !!state.docToolKeys[key] || !!state.addedKeys[key];
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.style.cssText = 'padding:4px 12px;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;' +
+            (onDoc ? 'background:#e0e0e0;color:#888;cursor:default;' : 'background:#27ae60;color:#fff;');
+        b.textContent = onDoc ? '\u2714 Added' : '+ Add';
+        if (onDoc) return b;
+        b.addEventListener('click', function () {
+            b.disabled = true;
+            b.textContent = 'Adding...';
+            addToolToDoc(state.docId, t.id)
+                .then(function () {
+                    state.addedKeys[toolKey(t)] = true;
+                    state.docToolKeys[toolKey(t)] = true;
+                    toast('Tool ' + (t.num || '') + ' added to ' + state.docName);
+                    refreshOrderToolsGrid();
+                    renderResults();
+                })
+                .catch(function (e) {
+                    b.disabled = false;
+                    b.textContent = '+ Add';
+                    toast('Add failed: ' + e.message, true);
+                });
+        });
+        return b;
+    }
+
+    function renderResults() {
+        var box = els.results;
+        if (!box) return;
+        box.innerHTML = '';
+        var q = (els.toolNum.value + ' ' + els.altNum.value + ' ' + els.desc.value).trim();
+        var terms = [els.toolNum.value.trim(), els.altNum.value.trim(), els.desc.value.trim()]
+            .filter(function (s) { return s; });
+        if (!terms.length && !state.tools.length) {
+            box.textContent = 'Loading tools...';
+            return;
+        }
+        var list = state.tools.filter(function (t) { return toolMatches(t, terms); });
+        if (!list.length) {
+            box.textContent = 'No tools matched' + (q ? ' "' + q + '"' : '.');
+            return;
+        }
+        var table = document.createElement('table');
+        table.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
+        var head = document.createElement('thead');
+        var hr = document.createElement('tr');
+        ['Tool \u0023', 'AltToolNumber', 'Description', ''].forEach(function (h) {
+            var c = document.createElement('th');
+            c.textContent = h;
+            c.style.cssText = 'text-align:left;padding:4px 8px;border-bottom:1px solid #ddd;white-space:nowrap;position:sticky;top:0;background:#fff;';
+            hr.appendChild(c);
+        });
+        head.appendChild(hr);
+        table.appendChild(head);
+        var tb = document.createElement('tbody');
+        list.sort(function (a, b) { return (a.num || '').localeCompare(b.num || '', undefined, { numeric: true }); });
+        for (var i = 0; i < list.length; i++) {
+            var t = list[i];
+            var tr = document.createElement('tr');
+            var cells = [t.num, (t.alt || t.alt2), t.desc];
+            for (var j = 0; j < cells.length; j++) {
+                var td = document.createElement('td');
+                td.textContent = cells[j] || '';
+                td.style.cssText = 'padding:3px 8px;border-bottom:1px solid #f0f0f0;vertical-align:top;';
+                tr.appendChild(td);
+            }
+            var tdBtn = document.createElement('td');
+            tdBtn.style.cssText = 'padding:3px 8px;border-bottom:1px solid #f0f0f0;white-space:nowrap;text-align:right;';
+            tdBtn.appendChild(renderAddBtn(t));
+            tr.appendChild(tdBtn);
+            tb.appendChild(tr);
+        }
+        table.appendChild(tb);
+        box.appendChild(table);
+    }
+
+    function resolveManualOverride() {
+        var manualNum = (els.manualNum.value || '').trim();
+        if (!manualNum) return false;
+        var recs = state.catalogByName[manualNum.toUpperCase()];
+        if (!recs || !recs.length) {
+            toast('No documentation found for manual \u0023' + manualNum, true);
+            return false;
+        }
+        applyDoc(recs[0].Id, manualNum + '.pdf');
+        return true;
+    }
+
+    function applyDoc(docId, name) {
+        state.docId = docId;
+        state.docName = name;
+        els.manualInfo.textContent = 'Adding tools to: ' + name;
+        els.manualInfo.style.color = '#27ae60';
+        els.manualBtn.disabled = true;
+        els.manualNum.disabled = true;
+        loadDocTools(function () {
+            loadAllTools(function () { renderResults(); });
+        });
+    }
+
+    function resolveSelectedManual() {
+        toast('Resolving Selected manual...');
+        loadCatalog(function () {
+            if (!state.catalogLoaded) {
+                toast('Documentation catalog unavailable - additions may still work.', true);
+            }
+            var info = getSelectedDocInfo();
+            if (!info) {
+                toast('No manual is Selected. Pick one in the Manuals section first, or type a manual \u0023 below.');
+                return;
+            }
+            var rec = pickDocRecord(info.name, rowHints(info.link));
+            if (!rec) {
+                toast('Could not map "' + info.name + '" to a documentation. Type the manual \u0023 below.');
+                return;
+            }
+            applyDoc(rec.Id, info.name);
+        });
+    }
+
+    // Reset per-open UI state (search fields, manual lock, status) so switching
+    // between orders/manuals never carries stale results into the popup.
+    function resetPanelForOpen() {
+        state.docId = null;
+        state.docName = '';
+        state.docToolKeys = {};
+        els.toolNum.value = '';
+        els.altNum.value = '';
+        els.desc.value = '';
+        els.manualNum.value = '';
+        els.manualNum.disabled = false;
+        els.manualBtn.disabled = false;
+        els.status.style.display = 'none';
+        els.manualInfo.textContent = 'Loading Selected manual...';
+        els.manualInfo.style.color = '#888';
+        renderResults();
+    }
+
+    function openModal() {
+        resetPanelForOpen();
+        els.overlay.style.display = 'flex';
+        resolveSelectedManual();
+    }
+
+    function closeModal() {
+        els.overlay.style.display = 'none';
+    }
+
+    function buildModal() {
+        var overlay = document.createElement('div');
+        overlay.id = 'quick-add-tool-overlay';
+        overlay.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99999;align-items:flex-start;justify-content:center;padding:40px 16px;';
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) closeModal();
+        });
+
+        var dialog = document.createElement('div');
+        dialog.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.3);width:100%;max-width:640px;max-height:85vh;display:flex;flex-direction:column;font-family:inherit;';
+        dialog.addEventListener('click', function (e) { e.stopPropagation(); });
+
+        var head = document.createElement('div');
+        head.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid #eee;';
+
+        var title = document.createElement('strong');
+        title.textContent = 'Add Tool';
+        title.style.cssText = 'font-size:14px;';
+        head.appendChild(title);
+
+        els.manualInfo = document.createElement('span');
+        els.manualInfo.style.cssText = 'font-size:12px;color:#888;flex:1;';
+        els.manualInfo.textContent = 'Loading Selected manual...';
+        head.appendChild(els.manualInfo);
+
+        var closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.textContent = '\u2715';
+        closeBtn.title = 'Close';
+        closeBtn.style.cssText = 'border:none;background:none;font-size:16px;cursor:pointer;color:#888;padding:0 4px;line-height:1;';
+        closeBtn.addEventListener('click', closeModal);
+        head.appendChild(closeBtn);
+        dialog.appendChild(head);
+
+        var statusRow = document.createElement('div');
+        statusRow.style.cssText = 'padding:0 16px;';
+        els.status = document.createElement('span');
+        els.status.style.cssText = 'font-size:12px;display:none;';
+        statusRow.appendChild(els.status);
+        dialog.appendChild(statusRow);
+
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 16px;';
+
+        function makeInput(ph, w) {
+            var inp = document.createElement('input');
+            inp.type = 'text';
+            inp.placeholder = ph;
+            inp.style.cssText = 'padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;width:' + w + 'px;';
+            inp.addEventListener('input', function () { renderResults(); });
+            return inp;
+        }
+        els.toolNum = makeInput('Tool \u0023', 110);
+        els.altNum = makeInput('Alt Tool \u0023', 120);
+        els.desc = makeInput('Description', 160);
+        row.appendChild(els.toolNum);
+        row.appendChild(els.altNum);
+        row.appendChild(els.desc);
+
+        var clear = document.createElement('button');
+        clear.type = 'button';
+        clear.textContent = 'Clear';
+        clear.style.cssText = 'padding:4px 12px;border:1px solid #ccc;background:#fff;color:#c0392b;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;';
+        clear.addEventListener('click', function () {
+            [els.toolNum, els.altNum, els.desc].forEach(function (i) { i.value = ''; });
+            renderResults();
+        });
+        row.appendChild(clear);
+        dialog.appendChild(row);
+
+        var row2 = document.createElement('div');
+        row2.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:0 16px 10px;';
+        els.manualNum = makeInput('Manual \u0023 override', 120);
+        row2.appendChild(els.manualNum);
+        els.manualBtn = document.createElement('button');
+        els.manualBtn.type = 'button';
+        els.manualBtn.textContent = 'Use \u0023';
+        els.manualBtn.style.cssText = 'padding:4px 12px;border:1px solid #ccc;background:#fff;color:#1a6e40;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;';
+        els.manualBtn.addEventListener('click', function () {
+            if (resolveManualOverride()) return;
+        });
+        row2.appendChild(els.manualBtn);
+        dialog.appendChild(row2);
+
+        els.results = document.createElement('div');
+        els.results.style.cssText = 'flex:1;overflow:auto;padding:0 16px 16px;';
+        dialog.appendChild(els.results);
+
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+        els.overlay = overlay;
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && overlay.style.display !== 'none') closeModal();
+        });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  TRIGGER BUTTON — re-inserted whenever the Tools section redraws
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function ensureTriggerButton() {
+        var anchor = document.getElementById('aeroToolsGrid') || document.getElementById('orderAeroToolsGrid');
+        if (!anchor) return;
+
+        var existing = document.getElementById('quick-add-tool-btn');
+        if (existing && existing.isConnected) return; // still present, nothing to do
+
+        var btn = document.createElement('button');
+        btn.id = 'quick-add-tool-btn';
+        btn.type = 'button';
+        btn.textContent = '+ Add Tool';
+        btn.style.cssText = 'margin:10px 0;padding:5px 14px;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;background:#27ae60;color:#fff;';
+        btn.addEventListener('click', openModal);
+
+        anchor.insertAdjacentElement('beforebegin', btn);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  INIT
+    // ═════════════════════════════════════════════════════════════════════════
+
+    buildModal();
+    // Runs indefinitely (not just until first success) since the Tools section
+    // can be redrawn by the app at any time (e.g. clicking Edit / Save), which
+    // wipes out the trigger button and would otherwise leave it gone for good.
+    setInterval(ensureTriggerButton, 700);
+})();
 
 // =========================================================================
 // ORIGINAL SCRIPT 1: TECH - Time Expanded Section Trimmed
