@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Calibration Table
 // @namespace    http://tampermonkey.net/
-// @version      7.10
+// @version      7.11
 // @description  Replace calibration textareas with an editable Excel-like table; serializes back for PDF printing.
 // @author       You
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
@@ -587,9 +587,34 @@
         // 4-column pattern: Gauge/UUT/% ERROR/PASS/FAIL
         if (headers.length >= 4 && headers.length % 4 === 0) {
             for (let i = 0; i < headers.length; i += 4) {
-                if (!/UUT/i.test(headers[i + 1]) || !/ERROR/i.test(headers[i + 2])) return false;
+                if (!/UUT/i.test(headers[i + 1]) || !/ERROR/i.test(headers[i + 2]) || !/PASS/i.test(headers[i + 3])) return false;
             }
             return true;
+        }
+        return false;
+    }
+
+    // Heuristic: if the saved data can't be card-mode auto-math, it must be a
+    // hand-typed sheet. Card mode only ever writes numeric % ERROR values and
+    // literal PASS/FAIL into those slots, so anything else there means the user
+    // typed it themselves and the content must NOT be re-parsed as a card.
+    function dataLooksTyped(headers, rows) {
+        if (!headers || !rows || !rows.length) return false;
+        const pfIdxs = [];
+        const errIdxs = [];
+        headers.forEach((h, i) => {
+            if (/PASS\/FAIL/i.test(h)) pfIdxs.push(i);
+            else if (/ERROR/i.test(h)) errIdxs.push(i);
+        });
+        for (const row of rows) {
+            for (const ci of pfIdxs) {
+                const v = String(row[ci] == null ? '' : row[ci]).trim().toUpperCase();
+                if (v !== '' && v !== 'PASS' && v !== 'FAIL') return true;
+            }
+            for (const ci of errIdxs) {
+                const v = String(row[ci] == null ? '' : row[ci]).trim();
+                if (v !== '' && isNaN(parseFloat(v))) return true;
+            }
         }
         return false;
     }
@@ -633,15 +658,32 @@
                 sheetCols = (savedLayout.sheetCols && savedLayout.sheetCols.length === n) ? savedLayout.sheetCols.slice() : Array(n).fill('');
                 roles = (savedLayout.roles && savedLayout.roles.length === n) ? savedLayout.roles.slice() : inferRoles(n);
                 viewMode = savedLayout.viewMode === 'sheet' ? 'sheet' : 'card';
+                // Hand-typed PASS/FAIL text outweighs a stale card-mode label:
+                // if the saved text can't be card math, reopen as a sheet so the
+                // C/D columns are never overwritten by calcError().
+                if (viewMode !== 'sheet' && dataLooksTyped(existing.headers, existing.rows)) viewMode = 'sheet';
             } else {
                 // No saved layout yet on this browser (older order, or a different
                 // computer) — fall back to inferring structure from the saved ASCII
                 // header line, same as before.
                 const cardMode = existing.headers ? isCardModeHeaders(existing.headers, config.columns) : true;
-                cardCols = (existing.headers && existing.headers.length) ? existing.headers.slice() : config.columns.slice();
-                sheetCols = Array(cardCols.length).fill('');
-                roles = inferRoles(cardCols.length);
-                viewMode = cardMode ? 'card' : 'sheet';
+                const typed = dataLooksTyped(existing.headers, existing.rows);
+                if (existing.headers && existing.headers.length && (!cardMode || typed)) {
+                    // Sheet-style data (renamed titles + typed C/D values) — the
+                    // titles live in the ASCII header line. Keep the card labels at
+                    // their defaults and restore the sheet column titles from the
+                    // saved text, never re-running card auto-math over typed cells.
+                    cardCols = config.columns.slice();
+                    if (cardCols.length !== existing.headers.length) cardCols = existing.headers.slice();
+                    sheetCols = existing.headers.slice();
+                    roles = inferRoles(cardCols.length);
+                    viewMode = 'sheet';
+                } else {
+                    cardCols = (existing.headers && existing.headers.length) ? existing.headers.slice() : config.columns.slice();
+                    sheetCols = Array(cardCols.length).fill('');
+                    roles = inferRoles(cardCols.length);
+                    viewMode = cardMode ? 'card' : 'sheet';
+                }
             }
             // Try localStorage first, then textarea, then default
             const savedSpecs = loadGaugeSpecs(resolvedId);
@@ -776,7 +818,7 @@
         }
 
         let _isSyncing = false;
-        function sync() {
+        function sync(skipLayout) {
             if (_isSyncing) return;
             _isSyncing = true;
             if (group.viewMode !== 'sheet') rows.forEach((_, ri) => calcError(ri));
@@ -806,7 +848,11 @@
             const changed = ta.value !== newValue;
             ta.value = newValue;
             saveGaugeSpecs(resolvedId, gaugeSpecs);
-            persistLayout();
+            // skipLayout guards the very first build: it must never persist a
+            // column layout while the textarea is still empty / page not yet
+            // loaded, otherwise a premature card-mode write would overwrite a
+            // previously saved sheet layout and clobber typed C/D data later.
+            if (!skipLayout) persistLayout();
             // Only announce a real value change. Dispatching bubbling change/input
             // on EVERY sync (including a blur with no edit) makes page-level
             // handlers fire constantly and feeds back into the mutation observer,
@@ -1749,7 +1795,7 @@
         group.widgets.push(widget);
         _built.add(resolvedId);
 
-        render(); sync();
+        render(); sync(true);
         return true;
     }
 
