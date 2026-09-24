@@ -45,6 +45,7 @@ Auto-updating userscripts for the Bristow app.
 | [Parts Preloader](FE---Parts-Preloader.user.js) | Loads and caches the full parts list so searching for parts is instant. Refreshes every hour automatically — use the Refresh Parts button to force an update. |
 | [Net 0 Customer Warning](FE---Net-0-Customer-Warning.user.js) | Fetches the customer's payment terms when you open a work order. If their terms are Net 0, the order info panel turns red and a warning badge appears next to the company name. |
 | [Parts Creation Guard](FE---Parts-Creation-Guard.user.js) | Shows a note when the Airworthiness Directives tag is blank, and blocks Save when the Alternate Part Number is missing from the Description on the Part List edit page. |
+| [Certification of Conformance](FE---Certification-of-Conformance.user.js) | Adds a Cert. of Conf. entry to the Print dropdown on work orders. Builds a client-side printable Certificate of Conformance with customer/PO/contact details, shipping address, part number and serial, condition dropdowns per line, and Transport Canada cert text. Includes Print and Export PDF. |
 
 ### SH — Shipping
 
