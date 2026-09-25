@@ -40,6 +40,7 @@ Auto-updating userscripts for the Bristow app.
 |--------|-------------|
 | [Force Contact Section Expanded](FE---Force-Contact-Section-Expanded.user.js) | Keeps the Contact section expanded by default on the order page. |
 | [Manuals Section Collapsed Default](FE---Manuals-Section-Collapsed-Default.user.js) | Collapses the Manuals section by default. |
+| [Tech Time Panel](FE---Tech-Time-Panel.user.js) | View-only floating panel with a quick view of a tech's hours on a work order — Order Rep, total hours, and a per-tech hours list. Includes the Time Expanded section it reads from; no logging or edits. |
 | [Second Save Button](FE---Second-Save-Button.user.js) | Adds a second Save button fixed to the screen for saving order line items — useful when scrolled far down. No auto-update. |
 | [Time Expanded Section Full Version](FE---Time-Expanded-Section-full-version.user.js) | Adds a Time Expanded section below the parts list with the full job view embedded — shows all service lines and hours logged. |
 | [Parts Preloader](FE---Parts-Preloader.user.js) | Loads and caches the full parts list so searching for parts is instant. Refreshes every hour automatically — use the Refresh Parts button to force an update. |
