@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUDIT - Compliance Report Generator
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      4.39
+// @version      4.40
 // @description  Multi-page audit console: Work Orders, POs, Library, Tools, Inventory. Date range, category filters, PDF export.
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
@@ -4240,7 +4240,7 @@ var repKey = normalizeName(getSelectedRep());
                 : '';
             var poDocs = (Array.isArray(r.poDocs) && r.poDocs.length > 0) ? r.poDocs : null;
             if (!poDocs) {
-                tbody += '<tr data-audit-row="' + i + '">'
+                tbody += '<tr>'
                     + '<td>' + (i + 1) + '</td>'
                     + '<td class="aoc-mono">' + orderLinkHtml(r.order, r.orderId) + '</td>'
                     + '<td>' + String(r.customer || '') + '</td>'
@@ -4259,7 +4259,7 @@ var repKey = normalizeName(getSelectedRep());
             for (var j = 0; j < poDocs.length; j++) {
                 var isFirst = j === 0;
                 var doc = poDocs[j];
-                tbody += '<tr data-audit-row="' + i + '">'
+                tbody += '<tr>'
                     + '<td>' + (isFirst ? (i + 1) : '') + '</td>'
                     + '<td class="aoc-mono">' + (isFirst ? orderLinkHtml(r.order, r.orderId) : '') + '</td>'
                     + '<td>' + (isFirst ? String(r.customer || '') : '') + '</td>'
@@ -4744,22 +4744,13 @@ var repKey = normalizeName(getSelectedRep());
                 + ' &mdash; Row(s) #' + state.indices.map(function (i) { return i + 1; }).join(', ');
         }
 
-        // A data row can span multiple <tr>s (e.g. the Subcontracts panel's
-        // expanded "PO Document" rows), so each <tr> is tagged with
-        // data-audit-row="<cfg.rows index>" at render time. Fall back to the
-        // tr's own position for panels that render one <tr> per row (no tag).
-        function trRowIndex(tr, fallbackIndex) {
-            var attr = tr.getAttribute('data-audit-row');
-            return attr !== null ? parseInt(attr, 10) : fallbackIndex;
-        }
-
         function applyHighlight() {
             var tbody = panel.querySelector('table tbody');
             if (!tbody) return;
-            for (var i = 0; i < tbody.children.length; i++) {
+            var max = cfg.rows.length;
+            for (var i = 0; i < tbody.children.length && i < max; i++) {
                 var tr = tbody.children[i];
-                var rowIdx = trRowIndex(tr, i);
-                var on = state.indices.indexOf(rowIdx) !== -1;
+                var on = state.indices.indexOf(i) !== -1;
                 tr.style.background = on ? '#fff3cd' : ((i + 1) % 2 === 0 ? '#f5f8fc' : '');
                 tr.title = on ? 'Sampled row' : '';
                 var c0 = tr.children[0];
@@ -4782,31 +4773,18 @@ var repKey = normalizeName(getSelectedRep());
             if (!tbody) return;
             if (!q) {
                 state.filtered = null;
-                for (var i = 0; i < tbody.children.length; i++) {
+                for (var i = 0; i < cfg.rows.length && i < tbody.children.length; i++) {
                     tbody.children[i].style.display = '';
                 }
                 countLbl.textContent = '';
             } else {
-                // Group <tr>s by their data row index first, so a match on any
-                // one line of a multi-row group (e.g. a second PO Document)
-                // keeps/shows the whole group together instead of splitting it.
-                var groups = {};
-                var order = [];
-                for (var i = 0; i < tbody.children.length; i++) {
-                    var tr = tbody.children[i];
-                    var rowIdx = trRowIndex(tr, i);
-                    if (!groups[rowIdx]) { groups[rowIdx] = []; order.push(rowIdx); }
-                    groups[rowIdx].push(tr);
-                }
                 var visible = [];
-                order.forEach(function (rowIdx) {
-                    var trs = groups[rowIdx];
-                    var text = '';
-                    trs.forEach(function (tr) { text += tr.textContent || ''; });
-                    var match = text.toLowerCase().indexOf(q) !== -1;
-                    trs.forEach(function (tr) { tr.style.display = match ? '' : 'none'; });
-                    if (match) visible.push(rowIdx);
-                });
+                for (var i = 0; i < cfg.rows.length && i < tbody.children.length; i++) {
+                    var txt = tbody.children[i].textContent || '';
+                    var match = txt.toLowerCase().indexOf(q) !== -1;
+                    tbody.children[i].style.display = match ? '' : 'none';
+                    if (match) visible.push(i);
+                }
                 state.filtered = visible;
                 countLbl.textContent = visible.length + ' of ' + cfg.rows.length + ' rows';
             }
@@ -6025,6 +6003,9 @@ var repKey = normalizeName(getSelectedRep());
                     var submittedAt = r.SubmittedAt || '';
                     var total = Number(r.Subtotal) || Number(r.TotalAmount) || Number(r.Total) || 0;
                     var orderNumber = r.OrderNumber != null ? String(r.OrderNumber) : '';
+                    // OC-YEG order numbers are excluded from the final PO list (user
+                    // requirement) — drop them before the row is built.
+                    if (officeCodeFromOrder(orderNumber) === 'YEG') continue;
                     // Order id: the grid row carries the Order entity guid under a few
                     // possible shapes; most rows have it flat as OrderId. This row-level
                     // value is a fallback — the cache enrichment below replaces it with
@@ -6201,11 +6182,10 @@ var repKey = normalizeName(getSelectedRep());
                             { title: 'Vendor', get: function (r) { return r.vendor || ''; } },
                             { title: 'Part', get: function (r) { return r.part || ''; } },
                             {
-                                title: 'Document',
-                                expandable: true,
-                                getMultiple: function (r) { return (Array.isArray(r.documents) ? r.documents : []).filter(function (d) { return d && d.documentId; }); },
-                                getItemLabel: function (d) { return d.name || 'Document'; },
-                                link: function (d) { return '/Orders/Orders/Edit?handler=ViewFile&documentId=' + encodeURIComponent(d.documentId); }
+                                title: 'Document', get: function (r) { return docNames(r.documents); }, link: function (r) {
+                                    var docs = (Array.isArray(r.documents) ? r.documents : []).filter(function (d) { return d && d.documentId; });
+                                    return docs.length ? '/Orders/Orders/Edit?handler=ViewFile&documentId=' + encodeURIComponent(docs[0].documentId) : '';
+                                }
                             },
                             { title: 'Completed Date', get: function (r) { return r.completedDate || ''; } }
                         ],
@@ -9145,7 +9125,7 @@ var repKey = normalizeName(getSelectedRep());
         applyAuditorMode();
         injectButton();
         checkDispatch();
-        if (TS) TS.log('AUDIT Console v4.39 loaded');
+        if (TS) TS.log('AUDIT Console v4.38 loaded');
         else console.log('[AUDIT] Console v4.16 loaded');
         try { if (window.unsafeWindow) window.unsafeWindow.auditHistTest = auditHistTest; } catch (e) {}
         try { window.auditHistTest = auditHistTest; } catch (e) {}
