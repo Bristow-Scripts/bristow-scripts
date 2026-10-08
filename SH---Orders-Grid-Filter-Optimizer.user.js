@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - Orders Grid Filter Optimizer
 // @namespace    http://tampermonkey.net/
-// @version      7.6
+// @version      7.7
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @description  WIP, Print, Clear buttons. Defaults filters to contains.
@@ -119,11 +119,12 @@
     }
 
     function injectUI() {
-        if (injected) return;
-        injected = true;
+        if (injected && document.getElementById('ofg-clear-btn')) return;
 
         var well = document.querySelector('.well.well-sm.open-bottom');
         if (!well) return;
+
+        injected = true;
 
         var row = document.createElement('div');
         row.style.cssText = 'margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
@@ -157,6 +158,9 @@
         var g = grid();
         if (!g) return;
 
+        g.unbind('filterMenuInit');
+        g.unbind('dataBound');
+
         g.bind('filterMenuInit', function (e) {
             try {
                 var ddl = e.container.find('[data-role="dropdownlist"]').first().data('kendoDropDownList');
@@ -185,15 +189,31 @@
         });
     }
 
-    window.addEventListener('load', function () {
+    function start() {
         var t = 0, id = setInterval(function () {
             t++;
-            if (window.$ && grid()) {
-                clearInterval(id);
+            if (window.$) {
                 injectUI();
-                init();
+                if (grid()) {
+                    clearInterval(id);
+                    init();
+                }
             }
-            if (t > 40) clearInterval(id);
+            if (t > 80) clearInterval(id);
         }, 250);
+    }
+
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        start();
+    } else {
+        window.addEventListener('load', start);
+    }
+
+    var mo = new MutationObserver(function () {
+        injectUI();
+        if (grid()) {
+            init();
+        }
     });
+    mo.observe(document.body, { childList: true, subtree: true });
 })();
