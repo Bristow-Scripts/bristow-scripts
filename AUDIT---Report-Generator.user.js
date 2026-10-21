@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUDIT - Compliance Report Generator
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      4.41
+// @version      4.44
 // @description  Multi-page audit console: Work Orders, POs, Library, Tools, Inventory. Date range, category filters, PDF export.
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
@@ -1526,7 +1526,11 @@
     function fetchShipDateForOrder(c) {
         return new Promise(function (resolve) {
             var fieldId = c.fieldId || '';
-            if (fieldId && isZeroGuid(fieldId)) return resolve({ no: c.no, date: null, resolved: true });
+            // The grid often serializes an all-zero GUID instead of omitting the
+            // Id — that is NOT proof the field is missing (the Edit page is the
+            // authority on that), so fall through to the Edit lookup rather
+            // than caching "no shipped" without ever checking.
+            if (fieldId && isZeroGuid(fieldId)) fieldId = '';
             if (!fieldId) {
                 if (!c.orderId) return resolve({ no: c.no, date: null, resolved: false });
                 // Reuse a field Id recovered from a previous run's Edit fetch.
@@ -1599,22 +1603,12 @@
 
     // Batched, cached scan of unmatched orders' status history. Returns a
     // Promise< map orderNo -> Date > of orders whose history shows a Shipped
-    // transition within [fromDate, toDate]. Results are persisted so re-runs
-    // don't refetch.
-    function fetchStatusHistoryShipDates(candidates, dates, onProgress) {
-        var from = dates ? dates.start : null;
-        var to = dates ? dates.end : null;
-        var lo = from ? new Date(from) : null;
-        var hi = to ? new Date(to) : null;
-        if (lo) lo.setHours(0, 0, 0, 0);
-        if (hi) hi.setHours(23, 59, 59, 999);
-        function inRange(d) {
-            var t = d.getTime();
-            if (lo && t < lo.getTime()) return false;
-            if (hi && t > hi.getTime()) return false;
-            return true;
-        }
-
+    // transition — ANY date, not just ones inside the report range, so a
+    // known-but-out-of-range shipped date still reaches the caller and is
+    // range-filtered there (instead of being dropped here and silently
+    // falling back to CreatedAt, which put wrong-month orders in the report).
+    // Results are persisted so re-runs don't refetch.
+    function fetchStatusHistoryShipDates(candidates, onProgress) {
         var ships = getHistCache();
         var toFetch = candidates.filter(function (c) { return !(c.no in ships); });
         var out = {};
@@ -1622,7 +1616,7 @@
         Object.keys(ships).forEach(function (no) {
             if (!ships[no]) return;                    // cached "no shipped"
             var d = new Date(ships[no]);
-            if (!isNaN(d.getTime()) && inRange(d)) out[no] = d;
+            if (!isNaN(d.getTime())) out[no] = d;
         });
 
         var idx = 0;
@@ -1654,7 +1648,7 @@
                     if (!res.resolved) { unresolvedCount++; return { ok: false }; }  // server error — leave uncached, retry next run
                     if (d && !isNaN(d.getTime())) {
                         ships[c.no] = d.toISOString();
-                        if (inRange(d)) out[c.no] = d;
+                        out[c.no] = d;
                     } else {
                         ships[c.no] = null;
                     }
@@ -1680,10 +1674,11 @@
 
     // Build the candidate list (completed orders not already in the shipped map)
     // and fetch their status history. woMap is already bounded to the completed
-    // set, and inRange() inside the fetcher only keeps orders whose Shipped
-    // transition falls within the user's date range, so scanning the whole
-    // unmatched set is safe — it just means the FIRST run fetches more, and the
-    // per-order result is cached for instant re-runs.
+    // set. The fetcher returns every determined shipped date (in or out of
+    // range); callers apply the report's date filter, so an order that shipped
+    // outside the range is excluded by its real date rather than being treated
+    // as undated. Scanning the whole unmatched set is safe — the FIRST run
+    // fetches more, and the per-order result is cached for instant re-runs.
     function expandShipDatesFromHistory(woMap, dates, knownMap, forceRefresh) {
         showProgress('Checking Bristow Status history for unmatched orders...');
         if (forceRefresh) { clearHistCache(); clearFieldCache(); }
@@ -1703,7 +1698,7 @@
         console.log('[AUDIT-HIST] woMap total', Object.keys(woMap).length,
             '| unmatched candidates', candidates.length,
             '| with grid fieldId', candidates.filter(function (c) { return !!c.fieldId; }).length);
-        return fetchStatusHistoryShipDates(candidates, dates, function (d, t) {
+        return fetchStatusHistoryShipDates(candidates, function (d, t) {
             showProgress('Checking Bristow Status history (' + d + '/' + t + ')...');
         });
     }
@@ -1803,6 +1798,10 @@
                 if (!haveAll && newIds > 0 && page < maxPages) {
                     page++;
                     return step();
+                }
+                if (typeof totalCount === 'number' && totalCount > collected.length) {
+                    console.warn('[AUDIT] Work Orders grid truncated: ' + collected.length + ' of ' + totalCount +
+                        ' rows fetched (page cap ' + maxPages + ' x ' + WO_PAGE_SIZE + ') — orders past this window are missing from every report');
                 }
                 return { rows: collected, error: null };
             });
@@ -9098,7 +9097,14 @@ var repKey = normalizeName(getSelectedRep());
                 showToast('Order not found: ' + orderNo, 'warn');
                 return { ok: false, reason: 'not-found' };
             }
-            console.log('[AUDIT-HIST] order', orderNo, '| Edit id =', w.id, '| grid bsFieldId =', JSON.stringify(w.bsFieldId), '| createdAt =', String(w.createdAt || ''));
+            var wCached = getWarrantyCache();
+            console.log('[AUDIT-HIST] order', orderNo, '| Edit id =', w.id,
+                '| orderStatus =', w.orderStatus,
+                '| bsStatus =', JSON.stringify(w.bsStatus),
+                '| office =', JSON.stringify(w.officeRaw),
+                '| warranty =', (w.id && (w.id in wCached)) ? wCached[w.id] : '(not cached yet)',
+                '| grid bsFieldId =', JSON.stringify(w.bsFieldId),
+                '| createdAt =', String(w.createdAt || ''));
             return fetchBsFieldIdFromEdit(w.id).then(function (r) {
                 var fieldId = (r && r.id) || '';
                 console.log('[AUDIT-HIST] field Id from Edit page =', JSON.stringify(fieldId), '| status =', r && r.status);
@@ -9129,8 +9135,8 @@ var repKey = normalizeName(getSelectedRep());
         applyAuditorMode();
         injectButton();
         checkDispatch();
-        if (TS) TS.log('AUDIT Console v4.39 loaded');
-        else console.log('[AUDIT] Console v4.16 loaded');
+        if (TS) TS.log('AUDIT Console v4.44 loaded');
+        else console.log('[AUDIT] Console v4.44 loaded');
         try { if (window.unsafeWindow) window.unsafeWindow.auditHistTest = auditHistTest; } catch (e) {}
         try { window.auditHistTest = auditHistTest; } catch (e) {}
     }
