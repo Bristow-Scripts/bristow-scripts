@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUDIT - Compliance Report Generator
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      4.44
+// @version      4.45
 // @description  Multi-page audit console: Work Orders, POs, Library, Tools, Inventory. Date range, category filters, PDF export.
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
@@ -696,7 +696,7 @@
                 var url = '/Orders/Orders/Edit?id=' + orderId;
                 var xhr = new XMLHttpRequest();
                 xhr.open('GET', url, true);
-                xhr.timeout = 8000;
+                xhr.timeout = 20000;
                 xhr.onreadystatechange = function () {
                     if (xhr.readyState === 4) {
                         // If the session expired, the server usually 302s to a login
@@ -787,7 +787,7 @@
         });
     }
 
-    function fetchCCChunk(ids, cache, warrantyCache, subcontractCache, errorCounts) {
+    function fetchCCChunk(ids, cache, warrantyCache, subcontractCache, errorCounts, failedIds) {
         var idx = 0;
         function next() {
             if (idx >= ids.length) return Promise.resolve();
@@ -798,7 +798,12 @@
                     if (result.error) {
                         // Transient failures are left uncached so they retry next run.
                         errorCounts[result.error] = (errorCounts[result.error] || 0) + 1;
+                        if (failedIds && failedIds.indexOf(id) === -1) failedIds.push(id);
                     } else {
+                        if (failedIds) {
+                            var fi = failedIds.indexOf(id);
+                            if (fi !== -1) failedIds.splice(fi, 1);
+                        }
                         // Cache even a blank cost center so it's fetched only once.
                         cache[id] = result.cc;
                         if (warrantyCache && typeof result.warranty === 'boolean') {
@@ -823,23 +828,45 @@
         if (toFetch.length === 0) {
             return Promise.resolve(cache);
         }
-        var idx = 0;
-        function step() {
-            if (idx >= toFetch.length) {
-                setWarrantyCache(cache);
-                return Promise.resolve(cache);
+        var failed = [];
+        var retried = false;
+        function runBatch(list) {
+            var idx = 0;
+            function step() {
+                if (idx >= list.length) return Promise.resolve();
+                var batch = list.slice(idx, idx + CC_PARALLEL);
+                idx += CC_PARALLEL;
+                return Promise.all(batch.map(function (id) {
+                    return fetchCCForOrder(id).then(function (result) {
+                        if (result.error) {
+                            if (failed.indexOf(id) === -1) failed.push(id);
+                            return;
+                        }
+                        if (typeof result.warranty === 'boolean') {
+                            cache[id] = result.warranty;
+                        }
+                    });
+                })).then(step);
             }
-            var batch = toFetch.slice(idx, idx + CC_PARALLEL);
-            idx += CC_PARALLEL;
-            return Promise.all(batch.map(function (id) {
-                return fetchCCForOrder(id).then(function (result) {
-                    if (!result.error && typeof result.warranty === 'boolean') {
-                        cache[id] = result.warranty;
-                    }
-                });
-            })).then(step);
+            return step();
         }
-        return step();
+        function finish() {
+            setWarrantyCache(cache);
+            if (failed.length) console.warn('[AUDIT] Warranty fetch: ' + failed.length + ' order(s) still failing — left uncached, re-run to resume');
+            return Promise.resolve(cache);
+        }
+        return runBatch(toFetch).then(function () {
+            if (failed.length && !retried) {
+                retried = true;
+                var retryIds = failed.slice();
+                failed.length = 0;
+                console.warn('[AUDIT] Retrying ' + retryIds.length + ' failed Warranty fetch(es) after 5s…');
+                return new Promise(function (r) { setTimeout(r, 5000); }).then(function () {
+                    return runBatch(retryIds);
+                }).then(finish);
+            }
+            return finish();
+        });
     }
 
     function fetchSubcontractBatch(orderIds) {
@@ -848,35 +875,60 @@
         if (toFetch.length === 0) {
             return Promise.resolve(cache);
         }
-        var idx = 0;
-        function step() {
-            if (idx >= toFetch.length) {
-                setSubcontractCache(cache);
-                return Promise.resolve(cache);
+        var failed = [];
+        var retried = false;
+        function runBatch(list) {
+            var idx = 0;
+            function step() {
+                if (idx >= list.length) return Promise.resolve();
+                var batch = list.slice(idx, idx + CC_PARALLEL);
+                idx += CC_PARALLEL;
+                return Promise.all(batch.map(function (id) {
+                    return fetchCCForOrder(id).then(function (result) {
+                        if (result.error) {
+                            if (failed.indexOf(id) === -1) failed.push(id);
+                            return;
+                        }
+                        if (result.subcontract === true) {
+                            cache[id] = true;
+                            return;
+                        }
+                        // The order line markup is NOT in the raw Edit page — the page
+                        // loads it via Edit?handler=LineArea&OrderId=<order> (confirmed
+                        // from the app's Network tab). Fetch that and test it.
+                        if (result._html) {
+                            return fetchSubcontractLineArea(id).then(function (text) {
+                                if (text) {
+                                    cache[id] = isSubcontractLineSpan(text);
+                                } else if (failed.indexOf(id) === -1) {
+                                    // empty text = error/timeout -> retry in-run, then next run
+                                    failed.push(id);
+                                }
+                            });
+                        }
+                        cache[id] = false;
+                    });
+                })).then(step);
             }
-            var batch = toFetch.slice(idx, idx + CC_PARALLEL);
-            idx += CC_PARALLEL;
-            return Promise.all(batch.map(function (id) {
-                return fetchCCForOrder(id).then(function (result) {
-                    if (result.error) return;
-                    if (result.subcontract === true) {
-                        cache[id] = true;
-                        return;
-                    }
-                    // The order line markup is NOT in the raw Edit page — the page
-                    // loads it via Edit?handler=LineArea&OrderId=<order> (confirmed
-                    // from the app's Network tab). Fetch that and test it.
-                    if (result._html) {
-                        return fetchSubcontractLineArea(id).then(function (text) {
-                            if (text) cache[id] = isSubcontractLineSpan(text);
-                            // empty text = error/timeout -> leave uncached to retry next run
-                        });
-                    }
-                    cache[id] = false;
-                });
-            })).then(step);
+            return step();
         }
-        return step();
+        function finish() {
+            setSubcontractCache(cache);
+            if (failed.length) console.warn('[AUDIT] Sub-Contract fetch: ' + failed.length + ' order(s) still failing — left uncached, re-run to resume');
+            return Promise.resolve(cache);
+        }
+        return runBatch(toFetch).then(function () {
+            if (failed.length && !retried) {
+                retried = true;
+                var retryIds = failed.slice();
+                failed.length = 0;
+                console.warn('[AUDIT] Retrying ' + retryIds.length + ' failed Sub-Contract fetch(es) after 5s…');
+                return new Promise(function (r) { setTimeout(r, 5000); }).then(function () {
+                    return runBatch(retryIds);
+                }).then(finish);
+            }
+            return finish();
+        });
     }
 
     // Renders the order's Lines area (item column incl. "Sub-Contract" descriptions).
@@ -885,7 +937,7 @@
             try {
                 var xhr = new XMLHttpRequest();
                 xhr.open('GET', '/Orders/Orders/Edit?handler=LineArea&OrderId=' + encodeURIComponent(orderId), true);
-                xhr.timeout = 8000;
+                xhr.timeout = 20000;
                 xhr.onreadystatechange = function () {
                     if (xhr.readyState === 4) {
                         resolve(xhr.status === 200 ? (xhr.responseText || '') : '');
@@ -917,6 +969,8 @@
         var total = toFetch.length;
         var done = startIdx;
         var errorCounts = {};
+        var failedIds = [];
+        var retried = false;
         var lastProgressTs = Date.now();
         var stallWarned = false;
 
@@ -928,22 +982,46 @@
             }
         }, 5000);
 
+        function finish() {
+            clearInterval(stallTimer);
+            clearCCProgress();
+            setCCCache(cache);
+            if (Object.keys(warrantyCache).length) setWarrantyCache(warrantyCache);
+            if (Object.keys(subcontractCache).length) setSubcontractCache(subcontractCache);
+            var errSummary = Object.keys(errorCounts).map(function (k) { return k + ':' + errorCounts[k]; }).join(', ');
+            if (errSummary) console.warn('[AUDIT] Cost Center cache finished with errors —', errSummary);
+            if (failedIds.length) console.warn('[AUDIT] Still uncached after retry —', failedIds.join(', ') + ' (re-run to resume)');
+            return Promise.resolve(cache);
+        }
+
         function processChunk() {
             if (done >= total) {
-                clearInterval(stallTimer);
-                clearCCProgress();
-                setCCCache(cache);
-                if (Object.keys(warrantyCache).length) setWarrantyCache(warrantyCache);
-                if (Object.keys(subcontractCache).length) setSubcontractCache(subcontractCache);
-                var errSummary = Object.keys(errorCounts).map(function (k) { return k + ':' + errorCounts[k]; }).join(', ');
-                if (errSummary) console.warn('[AUDIT] Cost Center cache finished with errors —', errSummary);
-                return Promise.resolve(cache);
+                if (failedIds.length && !retried) {
+                    // One in-run retry pass for transient failures (server load
+                    // spikes right after a big history scan). Still-failing ids
+                    // stay uncached and are retried on the next run as before.
+                    retried = true;
+                    var retryIds = failedIds.slice();
+                    failedIds.length = 0;
+                    clearInterval(stallTimer);
+                    console.warn('[AUDIT] Retrying ' + retryIds.length + ' failed Cost Center fetch(es) after 5s…');
+                    return new Promise(function (r) { setTimeout(r, 5000); }).then(function () {
+                        return fetchCCChunk(retryIds, cache, warrantyCache, subcontractCache, errorCounts, failedIds);
+                    }).then(function () {
+                        if (failedIds.length) console.warn('[AUDIT] Cost Center retry still failing for', failedIds.length, 'order(s)');
+                        return finish();
+                    }).catch(function (e) {
+                        console.error('[AUDIT] Cost Center retry pass failed', e);
+                        return finish();
+                    });
+                }
+                return finish();
             }
 
             var chunkEnd = Math.min(done + CC_CHUNK_SIZE, total);
             var chunk = toFetch.slice(done, chunkEnd);
 
-            return fetchCCChunk(chunk, cache, warrantyCache, subcontractCache, errorCounts).then(function () {
+            return fetchCCChunk(chunk, cache, warrantyCache, subcontractCache, errorCounts, failedIds).then(function () {
                 done = chunkEnd;
                 lastProgressTs = Date.now();
                 stallWarned = false;
@@ -9135,8 +9213,8 @@ var repKey = normalizeName(getSelectedRep());
         applyAuditorMode();
         injectButton();
         checkDispatch();
-        if (TS) TS.log('AUDIT Console v4.44 loaded');
-        else console.log('[AUDIT] Console v4.44 loaded');
+        if (TS) TS.log('AUDIT Console v4.45 loaded');
+        else console.log('[AUDIT] Console v4.45 loaded');
         try { if (window.unsafeWindow) window.unsafeWindow.auditHistTest = auditHistTest; } catch (e) {}
         try { window.auditHistTest = auditHistTest; } catch (e) {}
     }
