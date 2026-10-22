@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUDIT - Compliance Report Generator
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      4.45
+// @version      4.46
 // @description  Multi-page audit console: Work Orders, POs, Library, Tools, Inventory. Date range, category filters, PDF export.
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
@@ -846,7 +846,10 @@
                             cache[id] = result.warranty;
                         }
                     });
-                })).then(step);
+                })).then(function () {
+                    setWarrantyCache(cache);  // incremental save: an interrupted run keeps its progress
+                    return step();
+                });
             }
             return step();
         }
@@ -908,7 +911,10 @@
                         }
                         cache[id] = false;
                     });
-                })).then(step);
+                })).then(function () {
+                    setSubcontractCache(cache);  // incremental save: an interrupted run keeps its progress
+                    return step();
+                });
             }
             return step();
         }
@@ -9213,8 +9219,8 @@ var repKey = normalizeName(getSelectedRep());
         applyAuditorMode();
         injectButton();
         checkDispatch();
-        if (TS) TS.log('AUDIT Console v4.45 loaded');
-        else console.log('[AUDIT] Console v4.45 loaded');
+        if (TS) TS.log('AUDIT Console v4.46 loaded');
+        else console.log('[AUDIT] Console v4.46 loaded');
         try { if (window.unsafeWindow) window.unsafeWindow.auditHistTest = auditHistTest; } catch (e) {}
         try { window.auditHistTest = auditHistTest; } catch (e) {}
     }
