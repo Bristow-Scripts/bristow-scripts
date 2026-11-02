@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - Orders Grid Filter Optimizer
 // @namespace    http://tampermonkey.net/
-// @version      7.7
+// @version      7.8
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/SH---Orders-Grid-Filter-Optimizer.user.js
 // @description  WIP, Print, Clear buttons. Defaults filters to contains.
@@ -59,6 +59,15 @@
         searchGrid();
     }
 
+    var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    function fmtDate(v) {
+        var d = v ? new Date(v) : null;
+        if (!d || isNaN(d.getTime())) return '';
+        var dd = d.getDate();
+        return (dd < 10 ? '0' : '') + dd + '-' + MONTHS[d.getMonth()] + '-' + d.getFullYear();
+    }
+
     function printList() {
         var g = grid();
         if (!g) return;
@@ -80,7 +89,7 @@
             { t: 'Customer',   g: function (r) { return r.Company; } },
             { t: 'Component',  g: function (r) { return r.Aero && r.Aero.Component; } },
             { t: 'Serial No.', g: function (r) { return r.Aero && r.Aero.SerialNumber; } },
-            { t: 'Created At', g: function (r) { return r.CreatedAt ? new Date(r.CreatedAt).toLocaleDateString() : ''; } },
+            { t: 'Created At', g: function (r) { return r.CreatedAt ? fmtDate(r.CreatedAt) : ''; } },
             { t: 'QA',         g: function () { return 'WIP  SHIP  HOLD  EST'; }, center: true }
         ];
 
@@ -92,7 +101,7 @@
         h += 'tr:nth-child(even) td{background:#f5f5f5}';
         h += '@media print{button{display:none}}';
         h += '</style></head><body>';
-        h += '<h2>Customer Orders &mdash; ' + rows.length + ' &mdash; ' + new Date().toLocaleDateString() + '</h2>';
+        h += '<h2>Customer Orders &mdash; ' + rows.length + ' &mdash; ' + fmtDate(new Date()) + '</h2>';
         h += '<table><thead><tr>';
         cols.forEach(function (c) { h += '<th' + (c.center ? ' style="text-align:center"' : '') + '>' + c.t + '</th>'; });
         h += '</tr></thead><tbody>';
