@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bristow - Auto-Fill
 // @namespace    http://tampermonkey.net/
-// @version      7.9
+// @version      8.1
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---Auto-Fill.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---AutoFill.user.js
 // @description  Type /wip to fully automate starting a work order: status, docs, text, parts, tools, save.
@@ -125,6 +125,7 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
     '3066': {
       rank: 6,
       description: 'Cable Tensiometer T5-2002-101-00',
+      aliases: ['3626'],
       workOrderDesc: `WORK PERFORMED: TEST ONLY
 DATA: SEE ATTACHED
 WORK PERFORMED PER BRISTOW MPM USING APPROVED LIBRARY DOCUMENTS REVIEWED: BOB GRELA, #9 INITIAL.______`,
@@ -345,6 +346,18 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
 
     for (const key of Object.keys(templates)) {
       if (key.trim().toUpperCase() === name) return { key, tpl: templates[key] };
+    }
+
+    // Match by aliases (e.g. template "3066" also matches manual "3626")
+    for (const key of Object.keys(templates)) {
+      for (const src of [templates[key], DEFAULT_TEMPLATES[key]]) {
+        if (!src || !Array.isArray(src.aliases)) continue;
+        const hit = src.aliases.some(a => {
+          const an = String(a).trim().toUpperCase();
+          return an === name || normalizeForMatch(an) === nameNorm;
+        });
+        if (hit) return { key, tpl: templates[key] };
+      }
     }
 
     for (const key of Object.keys(templates)) {
@@ -936,8 +949,11 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
             const hasData = tpl && (tpl.workOrderDesc || (tpl.parts && tpl.parts.length) || (tpl.tools && tpl.tools.length));
             const desc = (tpl && tpl.description) || (DEFAULT_TEMPLATES[name] && DEFAULT_TEMPLATES[name].description) || '';
             const isManualNum = /^\d+$/.test(name);
+            const aliases = (tpl && Array.isArray(tpl.aliases) && tpl.aliases.length) ? tpl.aliases
+              : ((DEFAULT_TEMPLATES[name] && DEFAULT_TEMPLATES[name].aliases) || []);
+            const aliasSuffix = aliases.length ? ` (also ${aliases.join(', ')})` : '';
             const label = isManualNum
-              ? (desc ? `Manual ${name} — ${desc}` : `Manual ${name}`)
+              ? (desc ? `Manual ${name} — ${desc}${aliasSuffix}` : `Manual ${name}${aliasSuffix}`)
               : `⚠️ Legacy: ${name} (delete me)`;
             return `<option value="${esc(name)}" ${hasData ? 'style="color:#7fd;"' : 'style="color:#f88;"'}>${esc(label)}</option>`;
           }).join('')}
@@ -956,6 +972,10 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
             box-sizing:border-box;margin-bottom:10px;"></textarea>
           <label style="color:#aaa;font-size:11px;display:block;margin-bottom:3px;">Internal Snag (fills if blank)</label>
           <input id="wip-f-internalSnag" type="text" placeholder="e.g. Out of calibration"
+            style="width:100%;background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;
+            padding:6px;font-family:monospace;font-size:12px;box-sizing:border-box;margin-bottom:10px;">
+          <label style="color:#aaa;font-size:11px;display:block;margin-bottom:3px;">Alternate Manual #s (comma-separated, e.g. 3626)</label>
+          <input id="wip-f-aliases" type="text" placeholder="e.g. 3626"
             style="width:100%;background:#1a1a1a;color:#eee;border:1px solid #444;border-radius:4px;
             padding:6px;font-family:monospace;font-size:12px;box-sizing:border-box;margin-bottom:10px;">
           <label style="color:#aaa;font-size:11px;display:block;margin-bottom:3px;">
@@ -1011,6 +1031,9 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
       box.querySelector('#wip-f-description').value  = tpl.description   || '';
       box.querySelector('#wip-f-workOrderDesc').value = tpl.workOrderDesc || '';
       box.querySelector('#wip-f-internalSnag').value  = tpl.internalSnag  || '';
+      const defTpl = DEFAULT_TEMPLATES[name] || {};
+      const aliasList = (Array.isArray(tpl.aliases) && tpl.aliases.length) ? tpl.aliases : (defTpl.aliases || []);
+      box.querySelector('#wip-f-aliases').value = aliasList.join(', ');
       box.querySelector('#wip-f-tools').value = (tpl.tools || []).join(', ');
       box.querySelector('#wip-f-parts').value = partsToText(tpl.parts || []);
     }
@@ -1038,6 +1061,7 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
         description   : box.querySelector('#wip-f-description').value.trim(),
         workOrderDesc : box.querySelector('#wip-f-workOrderDesc').value.trim(),
         internalSnag  : box.querySelector('#wip-f-internalSnag').value.trim(),
+        aliases       : box.querySelector('#wip-f-aliases').value.split(',').map(s => s.trim()).filter(Boolean),
         tools         : box.querySelector('#wip-f-tools').value.split(',').map(s => s.trim()).filter(Boolean),
         parts         : textToParts(box.querySelector('#wip-f-parts').value),
       };
@@ -1290,9 +1314,10 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
       if (workLevelEl) setNativeValue(workLevelEl, 'WIC');
       await sleep(300);
 
-      // Set completion date to today
+      // Set "Completed Order On" date to today
       showProgress('Step 5/5: Setting completion date...');
-      const dateInput = findByLabel(['Completion Date', 'Complete Order By'], 'OrderHead_OrderCompletionDeadline');
+      const dateInput = document.getElementById('OrderHead_OrderCompletionDeadlineDate')
+        || findByLabel(['Completed Order On', 'Completion Date', 'Complete Order By'], 'OrderHead_OrderCompletionDeadlineDate');
       if (dateInput) {
         const dateWidget = typeof jQuery !== 'undefined'
           ? jQuery('#' + CSS.escape(dateInput.id)).data('kendoDatePicker') : null;
@@ -1301,11 +1326,13 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
           dateWidget.trigger('change');
         } else {
           const today = new Date();
-          const dateStr = String(today.getMonth()+1).padStart(2,'0') + '/' +
-                          String(today.getDate()).padStart(2,'0') + '/' +
-                          today.getFullYear();
+          const dateStr = today.getFullYear() + '-' +
+                          String(today.getMonth()+1).padStart(2,'0') + '-' +
+                          String(today.getDate()).padStart(2,'0');
           setNativeValue(dateInput, dateStr);
         }
+      } else {
+        showToast('⚠️ Completion date field not found', 'orange');
       }
       await sleep(300);
 
