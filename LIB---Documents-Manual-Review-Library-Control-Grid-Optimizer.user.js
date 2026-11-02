@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - Documents - Manual Review Report / Library Control Sheet / Grid Optimizer
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      2.6
+// @version      2.7
 // @description  Print Manual Review Report + Library Control Sheet + cached part-number search + edit-page helpers for Documentations
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Catalog/Documentations*
 // @noframes
@@ -109,7 +109,11 @@
                 var g = grid();
                 if (!g) return;
                 var val = partInput.value.trim();
-                if (!_allRecords) return;
+                if (!_allRecords) {
+                    showStatus('\u26A0 Part numbers not loaded \u2014 click Refresh Data', '#c0392b');
+                    hideStatus(3000);
+                    return;
+                }
                 if (!val) {
                     applyRecords(g, _allRecords);
                     return;
@@ -120,6 +124,10 @@
                     if (normalizePart(_allRecords[i].RelatedItems).indexOf(norm) !== -1) {
                         matched.push(_allRecords[i]);
                     }
+                }
+                if (!matched.length) {
+                    showStatus('\u2716 No parts match "' + val + '"', '#c0392b');
+                    hideStatus(2500);
                 }
                 applyRecords(g, matched);
             }, 150);
@@ -358,6 +366,13 @@
                 { field: 'Location', operator: 'doesnotcontain', value: 'CAC' }
             ]
         };
+        // Remember the user's filter so it can be put back after printing.
+        // The report filter (DocStatus / Capability / ExpirationDate range)
+        // must NOT stay on the data source - it hides expired manuals from
+        // every later part-number search, because applyPartFilter() only
+        // swaps the data and lets the active filter keep running.
+        var prevFilter = ds.filter();
+
         ds.filter(printFilter);
 
         showLoading(true, 'Fetching document details...');
@@ -372,6 +387,10 @@
                 return (da ? da.getTime() : 0) - (db ? db.getTime() : 0);
             });
             showLoading(false);
+            try {
+                ds.filter(prevFilter || []);
+                ensureLocationFilter(g);
+            } catch (e) {}
             generateManualReviewReportPrintout(richItems);
         });
     }
@@ -605,25 +624,52 @@
         var seen = {};
         var list = [];
         function add(p) {
+            p = String(p).replace(/\s+/g, ' ').trim();
             if (p && !seen[p]) {
                 seen[p] = true;
                 list.push(p);
             }
         }
-        if (/\(/.test(str)) {
-            var re = /\(([^)]*)\)/g;
-            var m;
-            while ((m = re.exec(str)) !== null) {
-                var inner = m[1].replace(/\s+/g, ' ').trim();
-                if (inner) {
-                    var toks = inner.split(',');
-                    for (var i = 0; i < toks.length; i++) add(toks[i].trim());
-                }
+
+        // Split on commas that are OUTSIDE parentheses only, so part numbers
+        // containing parens (e.g. 1394T100-3(5P)) stay in one piece.
+        var tokens = [];
+        var depth = 0;
+        var cur = '';
+        for (var i = 0; i < str.length; i++) {
+            var ch = str.charAt(i);
+            if (ch === '(') depth++;
+            else if (ch === ')') depth = Math.max(0, depth - 1);
+            if (ch === ',' && depth === 0) {
+                tokens.push(cur);
+                cur = '';
+            } else {
+                cur += ch;
             }
-            return list.join(', ');
         }
-        var plain = str.replace(/P-\d+\s*/g, '').split(',');
-        for (var j = 0; j < plain.length; j++) add(plain[j].trim());
+        tokens.push(cur);
+
+        for (var t = 0; t < tokens.length; t++) {
+            var tok = tokens[t].trim();
+            if (!tok) continue;
+
+            // Legacy wrapper format "Label (P-12345, P-67890)" - unwrap the
+            // list. Only unwrap when the parens really hold a comma-separated
+            // list; "(5P)" is part of the part number itself and must be kept.
+            var wm = tok.match(/^(.*?)\(([^()]*,[^()]*)\)$/);
+            if (wm && wm[1].indexOf('(') === -1) {
+                var inner = wm[2].split(',');
+                var any = false;
+                for (var k = 0; k < inner.length; k++) {
+                    var p = inner[k].trim();
+                    if (p) { add(p); any = true; }
+                }
+                if (any) continue;
+            }
+
+            add(tok.replace(/P-\d+\s*/g, ''));
+        }
+
         return list.join(', ');
     }
 
@@ -848,7 +894,10 @@
                             kept.push(p);
                         }
                     }
-                    cell.textContent = kept.join(', ');
+                    // Only shrink the cell when parts actually matched. If
+                    // nothing matched, leave the original list alone - blanking
+                    // it made manuals look like they had no parts at all.
+                    if (kept.length) cell.textContent = kept.join(', ');
                 }
             }
         } catch (e) {}
