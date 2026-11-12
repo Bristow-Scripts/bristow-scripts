@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      7.3
+// @version      7.4
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @noframes
@@ -15,7 +15,10 @@
 (function () {
     'use strict';
     if (location.pathname.startsWith('/ReportGenerator')) return;
-    if (location.search.includes('handler=ViewAeroFile')) return;
+    // Standalone document/file viewer pages (aero files and library documents)
+    // render a full-page document with its own toolbar; the floating Tech Mode
+    // toggle and nav cleanup would cover those controls. Skip them entirely.
+    if (/[?&]handler=View(?:Aero)?File(?:&|$)/i.test(location.search)) return;
     var TS = window.TechShared || null;
     var STORAGE_KEY = 'techModeEnabled';
     var techMode = localStorage.getItem(STORAGE_KEY) !== 'false';
