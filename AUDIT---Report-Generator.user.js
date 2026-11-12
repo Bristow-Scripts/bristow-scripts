@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUDIT - Compliance Report Generator
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      4.47
+// @version      4.48
 // @description  Multi-page audit console: Work Orders, POs, Library, Tools, Inventory. Date range, category filters, PDF export.
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
@@ -9215,16 +9215,18 @@ var repKey = normalizeName(getSelectedRep());
         // are standalone print/PDF views with no toolbar to anchor to — hide the
         // AUDIT button there, matching the other scripts' ReportGenerator guard.
         if (location.pathname.startsWith('/ReportGenerator')) return;
-        // Aero file viewer pages (Orders/Edit?handler=ViewAeroFile&documentId=...)
-        // are standalone document views; the AUDIT floating button lands on top
-        // of the page's Print button there, so skip the whole script.
-        if (/[?&]handler=ViewAeroFile(&|$)/i.test(location.search)) return;
+        // Standalone document/file viewer pages render a full-page document with
+        // its own toolbar: Orders/Edit?handler=ViewAeroFile (aero files) and
+        // Catalog/Documentations/EditDocumentation?handler=ViewFile (library
+        // documents). The AUDIT button lands on top of their controls, so skip
+        // the whole script there.
+        if (/[?&]handler=View(?:Aero)?File(?:&|$)/i.test(location.search)) return;
         injectStyles();
         applyAuditorMode();
         injectButton();
         checkDispatch();
-        if (TS) TS.log('AUDIT Console v4.47 loaded');
-        else console.log('[AUDIT] Console v4.47 loaded');
+        if (TS) TS.log('AUDIT Console v4.48 loaded');
+        else console.log('[AUDIT] Console v4.48 loaded');
         try { if (window.unsafeWindow) window.unsafeWindow.auditHistTest = auditHistTest; } catch (e) {}
         try { window.auditHistTest = auditHistTest; } catch (e) {}
     }
