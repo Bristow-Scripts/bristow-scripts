@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALL - Floating Text Blaze Box
 // @namespace    http://tampermonkey.net/
-// @version      1.8
+// @version      1.9
 // @description  Adds a floating textbox for Text Blaze — observer disconnects after adding.
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @grant        none
@@ -12,7 +12,9 @@
   var url = window.location.href;
   if (url.includes("/Orders/Jobs/Edit")) return;
   if (url.includes("/ReportGenerator/PrintPDF")) return;
-  if (url.includes("/Orders/Orders/Edit") && url.includes("handler=ViewAeroFile")) return;
+  // Standalone document/file viewer pages (aero files and library documents)
+  // have their own toolbar; the floating box covers it. Skip them.
+  if (/[?&]handler=View(?:Aero)?File(?:&|$)/i.test(url)) return;
 
   if (document.getElementById("tm-floating-box")) return;
   var box = document.createElement("textarea");
