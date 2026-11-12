@@ -4,6 +4,8 @@
 // @version      1.9
 // @description  Adds a floating textbox for Text Blaze — observer disconnects after adding.
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
+// @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Floating-Text-Blaze-Box.user.js
+// @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/ALL---Floating-Text-Blaze-Box.user.js
 // @grant        none
 // @run-at       document-end
 // @tag          ALL
