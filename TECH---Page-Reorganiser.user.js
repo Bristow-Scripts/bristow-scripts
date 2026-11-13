@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      7.5
+// @version      7.6
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @noframes
@@ -15,6 +15,7 @@
 (function () {
     'use strict';
     if (location.pathname.startsWith('/ReportGenerator')) return;
+    if (location.pathname.startsWith('/PdfGenerator')) return;
     // Standalone document/file viewer pages (aero files and library documents)
     // render a full-page document with its own toolbar; the floating Tech Mode
     // toggle and nav cleanup would cover those controls. Skip them entirely.
@@ -34,6 +35,7 @@
         'ReportName=Optional_Report1','ReportName=Optional_Report2','ReportName=Optional_Report3',
         'ReportName=Optional_Report4','ReportName=Optional_Report5','ReportName=Optional_Report6',
         'ReportName=Optional_Report8','ReportName=Job_Report','ReportName=JobDetailed_Report',
+        '/PdfGenerator/ViewPdf',
         '/TimeTracking/ServiceTimeTracking','/Orders/Jobs/PerformServices',
     ];
     const HIDDEN_HEADER_SECTIONS = ['#collapseContactInfo'];
@@ -183,7 +185,7 @@
             }
         });
         // Hide the Report links div (first child with Optional_Report link)
-        var reportLink = container.querySelector('a[href*="ReportName=Optional_Report"]');
+        var reportLink = container.querySelector('a[href*="ReportName=Optional_Report"], a[href*="/PdfGenerator/ViewPdf"]');
         if (reportLink) {
             var reportDiv = reportLink.closest('div');
             if (reportDiv) reportDiv.style.setProperty('order', '1', 'important');
