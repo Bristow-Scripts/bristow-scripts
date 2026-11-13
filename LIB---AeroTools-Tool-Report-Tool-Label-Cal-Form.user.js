@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - AeroTools - Tool Report / Tool Label / Cal Form
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      3.0
+// @version      3.1
 // @description  Clear filters, Print Tool Report, Bulk Edit, Print Label, Print Shop Cal Form, Structured Description, Part Number rename, Tool Number links for AeroTools
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Catalog/AeroTools*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---AeroTools-Tool-Report-Tool-Label-Cal-Form.user.js
@@ -470,7 +470,19 @@
         if (toolIds.length === 0) return;
 
         var g = grid();
-        var token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+        // Site change: pages may no longer render the antiforgery input.
+        // Unguarded .value used to throw here, killing the whole save silently
+        // (and leaving the toolbar stuck in edit mode). POSTing without the
+        // token gets 404, so abort loudly instead of firing doomed requests.
+        var tokenEl = document.querySelector('input[name="__RequestVerificationToken"]');
+        var token = tokenEl ? tokenEl.value : '';
+        if (!token) {
+            console.warn('[AeroTools] No __RequestVerificationToken input on page — inline save aborted.');
+            alert('Cannot save: no antiforgery token found on this page.\nReload the page and try again.');
+            isEditing = false;
+            updateBulkEditButton();
+            return;
+        }
         var total = 0;
         var completed = 0;
         var errors = 0;
