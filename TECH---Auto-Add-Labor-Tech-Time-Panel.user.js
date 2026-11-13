@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Expanded / Auto Labor / Time Panel + Quick Add Tool
 // @namespace    http://tampermonkey.net/
-// @version      10.1
+// @version      10.2
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @description  TECH Expanded/Auto Labor/Time Panel plus a floating "+ Add Tool" button that opens a search popup to add a tool to the work order without digging through the Documentations catalog.
@@ -1534,12 +1534,41 @@
         try { return new URL(f.src).searchParams.get('id'); } catch (e) { return null; }
     }
 
+    // Token lookup used to be iframe-only. After the site changes the Jobs Edit
+    // page no longer renders an antiforgery input (or renders it too late), so
+    // fall back to the top document / Shared-Core. ASP.NET Core tokens are bound
+    // to the session's antiforgery cookie, not to a specific form, so a token
+    // rendered anywhere in this session is valid for the header-based POST.
+    function readTokenIn(doc) {
+        if (!doc) return null;
+        var el = null;
+        try {
+            el = doc.querySelector('input[name="__RequestVerificationToken"]')
+               || doc.querySelector('meta[name="RequestVerificationToken"]')
+               || doc.querySelector('input[name="RequestVerificationToken"]');
+        } catch (e) { return null; }
+        if (!el) return null;
+        var v = el.value || el.getAttribute('content');
+        return v ? v : null;
+    }
+
     function getCsrfFromIframe() {
-        if (TS) return TS.csrf.getFromIframe();
-        var iDoc = getIframeDoc();
-        if (!iDoc) return null;
-        var t = iDoc.querySelector('input[name="__RequestVerificationToken"]');
-        return t ? t.value : null;
+        var token = readTokenIn(getIframeDoc());
+        if (token) return token;
+        if (TS && TS.csrf && typeof TS.csrf.get === 'function') {
+            token = TS.csrf.get();
+            if (token) return token;
+        }
+        token = readTokenIn(document);
+        if (token) return token;
+        try {
+            var f = getIframe();
+            if (f && f.contentWindow) {
+                token = readTokenIn(f.contentWindow.document);
+                if (token) return token;
+            }
+        } catch (e) {}
+        return null;
     }
 
     function findJobUrl() {
