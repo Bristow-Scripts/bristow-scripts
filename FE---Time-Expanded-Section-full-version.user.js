@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FE - Time Expanded Section full version
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.7
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Time-Expanded-Section-full-version.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Time-Expanded-Section-full-version.user.js
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Orders/Orders/Edit*
@@ -92,12 +92,34 @@
         inner.className = "col-md-12";
 
         var iframe = document.createElement("iframe");
-        iframe.src = jobUrl;
+        // Cache-bust so a stale copy of the job page (whose inline JS calls
+        // handler names the server has since renamed) is never served.
+        iframe.src = jobUrl + (jobUrl.indexOf('?') === -1 ? '?' : '&') + 'brv=' + Date.now();
         iframe.style.width = "100%";
         iframe.style.height = "2050px";
         iframe.style.border = "1px solid #ccc";
         iframe.style.borderRadius = "6px";
         iframe.style.marginTop = "10px";
+
+        // The Jobs Edit page no longer renders an antiforgery input inside the
+        // iframe, so POSTs from the page (add/save) 404. Mirror the top
+        // document's token into the iframe document (idempotent).
+        iframe.onload = function () {
+            try {
+                var doc = iframe.contentDocument || iframe.contentWindow.document;
+                if (!doc || !doc.body) return;
+                if (doc.querySelector('input[name="__RequestVerificationToken"]')) return;
+                var topEl = document.querySelector('input[name="__RequestVerificationToken"]')
+                           || document.querySelector('meta[name="RequestVerificationToken"]');
+                var token = topEl ? (topEl.value || topEl.getAttribute('content')) : null;
+                if (!token) return;
+                var inp = doc.createElement('input');
+                inp.type = 'hidden';
+                inp.name = '__RequestVerificationToken';
+                inp.value = token;
+                doc.body.appendChild(inp);
+            } catch (e) {}
+        };
 
         inner.appendChild(iframe);
         body.appendChild(inner);
