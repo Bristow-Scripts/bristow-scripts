@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      7.4
+// @version      7.5
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @noframes
@@ -45,6 +45,13 @@
         '#AerospaceHead_CostCenter','#AerospaceHead_EASA',
         '#AerospaceHead_ShippedBy','#OrderHead_CustomerContactId','#OrderHead_TermsAndConditions',
         '#OrderHead_ShippingInstructions',
+        // Site change: these Aerospace fields now render read-only in view mode
+        // (span + validation span, no input), so the input ids above match
+        // nothing. The validation span exists in BOTH view and edit mode and
+        // sits in the same <tr> as the field — hide via that instead.
+        '[data-valmsg-for="AerospaceHead.CostCenter"]',
+        '[data-valmsg-for="AerospaceHead.EASA"]',
+        '[data-valmsg-for="AerospaceHead.ShippedBy"]',
     ];
     const FROZEN_FIELDS = [
         { pickerId:'OrderHead_CustomerId', labelText:'Company' },
@@ -68,10 +75,19 @@
     // Optionally disambiguates by an input ID prefix (e.g. 'CustomFields_5__').
     function findFieldDiv(labelText, inputIdPrefix) {
         var container = document.getElementById('collapseAdditional') || document;
-        var labels = container.querySelectorAll('label.control-label');
+        // Site change: Additional Info fields are now standalone .custom-field
+        // divs labelled by label.custom-field-label (no <tr>, no control-label),
+        // so the legacy scan alone finds nothing. Both label styles are scanned.
+        var labels = container.querySelectorAll('label.control-label, label.custom-field-label');
         for (var i = 0; i < labels.length; i++) {
             if (labels[i].textContent.trim().indexOf(labelText) !== -1) {
-                var div = labels[i].closest('div[class*="col-md"]') || labels[i].closest('div') || labels[i].closest('tr');
+                // .custom-field MUST come before div[class*="col-md"]: every
+                // custom field sits inside #customFieldsSection.col-md-12, so
+                // the col-md check would otherwise return the whole section.
+                var div = labels[i].closest('.custom-field')
+                       || labels[i].closest('div[class*="col-md"]')
+                       || labels[i].closest('div')
+                       || labels[i].closest('tr');
                 if (!div) continue;
                 if (inputIdPrefix) {
                     if (!div.querySelector('[id*="' + inputIdPrefix + '"]')) continue;
@@ -151,6 +167,9 @@
             } else {
                 div.style.removeProperty('display');
             }
+            // Page markup sets grid-area: ... !important on .custom-field divs,
+            // which overrides individual grid-row/grid-column. Clear it first.
+            div.style.removeProperty('grid-area');
             if (rule.fullWidth) {
                 div.style.setProperty('grid-column', '1 / -1', 'important');
             } else if (rule.gridCol) {
@@ -175,10 +194,21 @@
     function restoreAdditionalLayout() {
         var container = document.getElementById('collapseAdditional');
         if (!container) return;
+        // New markup: rebuildAdditionalLayout styles .custom-field divs directly
+        // (they're the grid children of #customFieldsSection.custom-fields-grid).
+        container.querySelectorAll('.custom-field').forEach(function(div) {
+            div.style.removeProperty('display');
+            div.style.removeProperty('grid-area');
+            div.style.removeProperty('grid-column');
+            div.style.removeProperty('grid-row');
+            div.style.removeProperty('order');
+        });
+        // Legacy markup: field rows with label.control-label
         container.querySelectorAll('label.control-label').forEach(function(label) {
             var div = label.closest('div[class*="col-md"]') || label.closest('div') || label.closest('tr');
             if (div) {
                 div.style.removeProperty('display');
+                div.style.removeProperty('grid-area');
                 div.style.removeProperty('grid-column');
                 div.style.removeProperty('grid-row');
                 div.style.removeProperty('order');
@@ -254,7 +284,11 @@
 
             // Additional Info section — grid layout (structural only, field targeting via DOM)
             css.push('#collapseAdditional.collapse.in { display: grid !important; grid-template-columns: repeat(3, 1fr); column-gap: 20px; row-gap: 10px; align-items: start; }');
-            css.push('#collapseAdditional.collapse.in > [class*="col-md-"] { width: auto !important; max-width: none !important; flex: none !important; margin-bottom: 0; }');
+            css.push('#collapseAdditional.collapse.in > [class*="col-md-"] { width: auto !important; max-width: none !important; flex: none !important; margin-bottom: 0; grid-column: 1 / -1 !important; }');
+            // The .custom-field divs are nested inside #customFieldsSection (a col-md-12 wrapper),
+            // so the outer grid alone can't position them. Make #customFieldsSection itself a grid
+            // container so each .custom-field's grid-area / grid-row / grid-column applies.
+            css.push('#customFieldsSection.custom-fields-grid { display: grid !important; grid-template-columns: repeat(3, 1fr); column-gap: 20px; row-gap: 10px; align-items: start; }');
             css.push('#collapseAdditional .table.lq-table-info { margin-bottom: 0; }');
             css.push('#collapseAdditional .k-datepicker { width: 100% !important; }');
             css.push('#collapseAdditional input.form-control { max-width: 250px; }');
@@ -605,7 +639,22 @@
         if (!group) return;
         var parent = group.parentNode;
         var btn = document.querySelector('a.btn-info[href*="Optional_Report7"]:not([data-tech-inspected])');
-        if (!btn) return;
+        if (!btn) {
+            // Site change: standalone ReportName=Optional_Report7 links are gone —
+            // reports moved into the Print dropdown as /PdfGenerator/ViewPdf?...
+            // Clone the "Inspection" entry out of the dropdown (clone, don't
+            // move: the dropdown must keep working). The clone carries
+            // data-tech-inspected so the dedupe below removes it on re-runs,
+            // while the original dropdown link is never tagged/removed.
+            var links = document.querySelectorAll('.print-options-button a[href*="ViewPdf"]');
+            for (var i = 0; i < links.length; i++) {
+                if (/^\s*Inspection\s*$/i.test(links[i].textContent)) {
+                    btn = links[i].cloneNode(true);
+                    break;
+                }
+            }
+            if (!btn) return;
+        }
         parent.querySelectorAll('a[data-tech-inspected]').forEach(function(el){ el.remove() });
         btn.dataset.techInspected = 'true';
         btn.className = 'btn btn-default btn-sm';
