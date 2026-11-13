@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUDIT - Compliance Report Generator
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      4.48
+// @version      4.49
 // @description  Multi-page audit console: Work Orders, POs, Library, Tools, Inventory. Date range, category filters, PDF export.
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
@@ -9215,6 +9215,7 @@ var repKey = normalizeName(getSelectedRep());
         // are standalone print/PDF views with no toolbar to anchor to — hide the
         // AUDIT button there, matching the other scripts' ReportGenerator guard.
         if (location.pathname.startsWith('/ReportGenerator')) return;
+        if (location.pathname.startsWith('/PdfGenerator')) return;
         // Standalone document/file viewer pages render a full-page document with
         // its own toolbar: Orders/Edit?handler=ViewAeroFile (aero files) and
         // Catalog/Documentations/EditDocumentation?handler=ViewFile (library
