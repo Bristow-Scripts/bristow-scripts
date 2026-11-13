@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - Documents - Manual Review Report / Library Control Sheet / Grid Optimizer
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      2.7
+// @version      2.8
 // @description  Print Manual Review Report + Library Control Sheet + cached part-number search + edit-page helpers for Documentations
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Catalog/Documentations*
 // @noframes
@@ -16,7 +16,18 @@
 
     var BTN = 'padding:5px 14px;border:none;border-radius:5px;font-size:13px;font-family:system-ui,sans-serif;font-weight:600;cursor:pointer;';
 
-    function grid() { return $('#grid').data('kendoGrid'); }
+    function grid() {
+        var g = $('#grid').data('kendoGrid');
+        if (g) return g;
+        // Fallback: if the site renamed the grid id, the documents grid is
+        // the page's [data-role="grid"] widget — find it instead of letting
+        // every list-page feature die silently.
+        var found = null;
+        $('[data-role="grid"]').each(function () {
+            if (!found) { var w = $(this).data('kendoGrid'); if (w) found = w; }
+        });
+        return found;
+    }
 
     function createButton(text, bg, color, onClick) {
         var btn = document.createElement('button');
@@ -499,6 +510,9 @@
         h += '</body></html>';
 
         var w = window.open('', '_blank', 'width=1000,height=700');
+        // The print opens after async data fetches — outside the user-gesture
+        // window, so popup blockers can null it. Guard instead of crashing.
+        if (!w) { alert('Pop-up blocked - please allow pop-ups for this site to print.'); return; }
         w.document.write(h);
         w.document.close();
         setTimeout(function () { w.print(); }, 500);
@@ -1221,7 +1235,10 @@
         };
         var parsedDesc = parseDescription(val(FIELD.description));
 
-        fetchItems(documentationId).then(function (rawItems) {
+        // Must return the promise: the button's click handler chains .then()
+        // on this to re-enable it — returning undefined threw a TypeError and
+        // left "Print Library Control Sheet" disabled after the first click.
+        return fetchItems(documentationId).then(function (rawItems) {
             var itemRows = (rawItems || []).map(function (item) {
                 var partNumber = getTagValue(item.Tags, 'Part Number');
                 return {
