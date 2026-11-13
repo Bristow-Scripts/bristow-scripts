@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Expanded / Auto Labor / Time Panel + Quick Add Tool
 // @namespace    http://tampermonkey.net/
-// @version      10.2
+// @version      10.6
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @description  TECH Expanded/Auto Labor/Time Panel plus a floating "+ Add Tool" button that opens a search popup to add a tool to the work order without digging through the Documentations catalog.
@@ -987,10 +987,69 @@
         }
     }
 
+    // The Jobs Edit page reads its antiforgery token right before every add/save
+    // POST:
+    //   headers: { RequestVerificationToken:
+    //              $('input:hidden[name="__RequestVerificationToken"]').val() }
+    // After the site change that input is no longer rendered inside the iframe,
+    // so .val() returns undefined, jQuery omits the header, and the server
+    // answers 404 (Razor Pages treats a token-less POST to the handler as no
+    // handler found). Mirror the top document's token into the iframe document
+    // so the page's own JS finds it natively. ASP.NET Core tokens are bound to
+    // the session's antiforgery cookie, not to a specific form/page, so the top
+    // page's token is valid here (verified: POST with it returns 200 + row HTML).
+    // Idempotent: skipped whenever any token input already exists in the iframe.
+    function ensureIframeAntiforgery(iframe) {
+        try {
+            var doc = iframe.contentDocument || iframe.contentWindow.document;
+            if (!doc || !doc.body) return;
+            if (doc.querySelector('input[name="__RequestVerificationToken"]')) return;
+
+            var token = null;
+            var topEl = document.querySelector('input[name="__RequestVerificationToken"]')
+                       || document.querySelector('meta[name="RequestVerificationToken"]');
+            if (topEl) token = topEl.value || topEl.getAttribute('content');
+            if (!token) return;
+
+            var inp = doc.createElement('input');
+            inp.type = 'hidden';
+            inp.id = 'br-antiforgery-token';
+            inp.name = '__RequestVerificationToken';
+            inp.value = token;
+            doc.body.appendChild(inp);
+            console.log('[Trim] Injected antiforgery token input into iframe document');
+        } catch (e) {}
+    }
+
+    // Reports failed AJAX made by the job page itself (add source line, save,
+    // etc.) as a CustomEvent on the top document, where the Time Panel shows it.
+    // Guards against attaching twice via iframe.dataset.brErrReporter.
+    function attachIframeErrorReporter(iframe) {
+        try {
+            if (iframe.dataset.brErrReporter === '1') return;
+            var iWin = iframe.contentWindow;
+            if (!iWin || !iWin.jQuery) return;
+            iframe.dataset.brErrReporter = '1';
+            iWin.jQuery(iWin.document).ajaxError(function (e, xhr, settings) {
+                var url = (settings && settings.url) ? settings.url : '?';
+                var msg = 'Job page request failed: HTTP ' + xhr.status + ' \u2014 ' + url;
+                console.warn('[Trim] ' + msg);
+                try {
+                    document.dispatchEvent(new CustomEvent('br-iframe-error', { detail: msg }));
+                } catch (err) {}
+            });
+            console.log('[Trim] Iframe AJAX error reporter attached');
+        } catch (e) {}
+    }
+
     function removeStuffFromIframe(iframe) {
         try {
             var doc = iframe.contentDocument || iframe.contentWindow.document;
             if (!doc) return;
+
+            // Run before the grid gate too — the page's own JS may need the
+            // token before the grid finishes rendering.
+            ensureIframeAntiforgery(iframe);
 
             if (!doc.querySelector('#serviceGrid')) {
                 console.log('[Trim] Grid not ready yet - skipping');
@@ -1001,6 +1060,7 @@
             neutralizeIframeBackground(doc);
             // removeInternalScrollContainers(doc);  // can cause whitespace (removes overflow constraints)
             preloadServiceFilters(iframe, doc);
+            attachIframeErrorReporter(iframe);
             hideExtraIframeUI(doc);
 
             doc.querySelectorAll('a.btn.btn-default[href="#HeaderTarget"]').forEach(el => el.remove());
@@ -1135,6 +1195,10 @@
 
             hideOrderLineColumns(doc);
 
+            // Re-check after the removal passes: if one of the cleanup steps
+            // (or the site) removed the token input, put it back.
+            ensureIframeAntiforgery(iframe);
+
             pollResizeUntilStable(iframe);
             observeIframeHeight(iframe);
 
@@ -1208,7 +1272,10 @@
         inner.className = "col-md-12";
 
         var iframe = document.createElement("iframe");
-        iframe.src = jobUrl;
+        // Cache-bust: if the browser serves a stale copy of the job page, its
+        // inline JS calls handler names the server has since renamed and every
+        // add/save 404s. Always fetch a fresh copy.
+        iframe.src = jobUrl + (jobUrl.indexOf('?') === -1 ? '?' : '&') + 'brv=' + Date.now();
         iframe.style.width = "100%";
         iframe.style.height = "2000px";
         iframe.style.border = "1px solid #ccc";
@@ -1811,11 +1878,22 @@
         for (var i = 0; i < inputs.length; i++) {
             var row = inputs[i].closest('tr');
             if (!row) continue;
+            var matched = false;
+            // Preferred: the old condensed description cell.
             var cells = row.querySelectorAll('.condensedCell');
-            for (var j = 0; j < cells.length; j++) {
+            for (var j = 0; j < cells && !matched; j++) {
                 var t = cells[j].textContent.trim().toLowerCase();
-                if (t.indexOf(first) !== -1 && (!last || t.indexOf(last) !== -1))
-                    return { lineId: inputs[i].id.replace('OrderLineQuantity_', ''), input: inputs[i] };
+                if (t.indexOf(first) !== -1 && (!last || t.indexOf(last) !== -1)) matched = true;
+            }
+            // Fallback: the site markup changed, so .condensedCell may be gone.
+            // Match against the whole row's text (the row only contains that
+            // line's own cells — source/sub lines are separate <tr> elements).
+            if (!matched) {
+                var rt = (row.textContent || '').trim().toLowerCase();
+                if (rt.indexOf(first) !== -1 && (!last || rt.indexOf(last) !== -1)) matched = true;
+            }
+            if (matched) {
+                return { lineId: inputs[i].id.replace('OrderLineQuantity_', ''), input: inputs[i] };
             }
         }
         return null;
@@ -1890,6 +1968,16 @@
         });
     }
 
+    // The Time Expanded job page makes its own AJAX (add source line, save).
+    // When those endpoints 404 after a site change, the panel used to keep
+    // showing a stale "working…" message. Bridge iframe AJAX errors into the
+    // panel so the real HTTP failure is visible.
+    document.addEventListener('br-iframe-error', function (e) {
+        if (!e || !e.detail) return;
+        setFeedback(e.detail, false);
+        resetBtn();
+    });
+
     function resetBtn() {
         var btn = document.getElementById('tp-set');
         if (btn) { btn.disabled = false; btn.textContent = 'Log Hours'; }
@@ -1947,18 +2035,30 @@ function applyAndSave(subInput) {
             return setFeedback('Could not find + button in iframe.', false);
         }
 
-        poll('new sub-line', function () {
+        // Local wait (not TS.poll) so a timeout is visible in the panel: the
+        // job page's add-source AJAX can fail silently (e.g. 404 on a renamed
+        // handler) and the row then never appears.
+        var waited = 0;
+        (function waitForNewSubLine() {
             var subs = getSubLineQuantities(lineId);
-            return subs.length > before ? subs : null;
-        }, function (subs) {
-            var lastInput = subs[subs.length - 1].input;
-            applyAndSave(lastInput);
-        }, 5000, 250);
+            if (subs.length > before) {
+                applyAndSave(subs[subs.length - 1].input);
+                return;
+            }
+            waited += 250;
+            if (waited >= 5000) {
+                warn('New sub-line did not appear within 5s — the job page add-source request likely failed.');
+                setFeedback('Sub-line was not added — the job page request failed. See console for the HTTP error.', false);
+                resetBtn();
+                return;
+            }
+            setTimeout(waitForNewSubLine, 250);
+        })();
     }
 
     function injectLabourLineIntoIframe(html) {
         var iDoc = getIframeDoc();
-        if (!iDoc) return;
+        if (!iDoc) { warn('Inject: no iframe document.'); return false; }
         var tbody = null;
         iDoc.querySelectorAll('tbody').forEach(function (tb) {
             if (tb.querySelector('input[id^="OrderLineQuantity_"]')) tbody = tb;
@@ -1967,11 +2067,16 @@ function applyAndSave(subInput) {
             var tbs = iDoc.querySelectorAll('tbody');
             if (tbs.length >= 4) tbody = tbs[3];
         }
-        if (!tbody) return;
+        if (!tbody) {
+            warn('Inject: no target tbody found (' + iDoc.querySelectorAll('tbody').length + ' tbodies in doc).');
+            return false;
+        }
         var tpl = iDoc.createElement('template');
         tpl.innerHTML = html;
         tpl.content.querySelectorAll('script').forEach(function (s) { s.remove(); });
         tbody.appendChild(tpl.content);
+        log('Inject: appended labour line response into grid tbody.');
+        return true;
     }
 
     function addLabourLineToJob(techName, serviceId, onDone) {
@@ -1981,6 +2086,7 @@ function applyAndSave(subInput) {
         if (!csrf)      return onDone(false, 'Could not find CSRF token.');
         if (!serviceId) return onDone(false, 'No service ID for ' + techName + '.');
 
+        log('POST NewServiceLine: jobId=' + jobId + ' serviceId=' + serviceId);
         fetch('/Orders/Jobs/Edit?handler=NewServiceLine'
             + '&jobId='     + jobId
             + '&serviceId=' + serviceId
@@ -1995,10 +2101,17 @@ function applyAndSave(subInput) {
             credentials: 'include',
             body: ''
         })
-        .then(function (r) { return r.ok ? r.text() : Promise.reject('POST ' + r.status); })
+        .then(function (r) {
+            if (!r.ok) return Promise.reject('POST ' + r.status);
+            return r.text();
+        })
         .then(function (html) {
             if (!html) return onDone(false, 'Empty response.');
-            injectLabourLineIntoIframe(html);
+            log('NewServiceLine response: ' + html.length + ' chars | head: '
+                + html.substring(0, 250).replace(/\s+/g, ' '));
+            if (!injectLabourLineIntoIframe(html)) {
+                return onDone(false, 'Response received but could not be inserted into the grid.');
+            }
             onDone(true, '');
         })
         .catch(function (err) { onDone(false, 'Error: ' + err); });
@@ -2012,11 +2125,24 @@ function applyAndSave(subInput) {
             setFeedback('Adding labour line for ' + techName + '...', true);
             addLabourLineToJob(techName, serviceId, function (ok, msg) {
                 if (!ok) { setFeedback(msg, false); resetBtn(); return; }
-                poll('tech main line after add', function () {
-                    return findTechMainLine(techName);
-                }, function (line) {
-                    setTimeout(function () { doAddSubLine(line.lineId, hours, techName, true); }, 300);
-                }, 10000, 500);
+                // Poll locally (not via TS.poll) so a timeout can surface in the
+                // panel instead of dying silently in the console.
+                var waited = 0;
+                (function waitForTechLine() {
+                    var line = findTechMainLine(techName);
+                    if (line) {
+                        setTimeout(function () { doAddSubLine(line.lineId, hours, techName, true); }, 300);
+                        return;
+                    }
+                    waited += 500;
+                    if (waited >= 10000) {
+                        warn('Tech main line not found within 10s after add for "' + techName + '".');
+                        setFeedback('Line added, but the tech row was not found in the grid. Expand Time Expanded, check the console log, then retry.', false);
+                        resetBtn();
+                        return;
+                    }
+                    setTimeout(waitForTechLine, 500);
+                })();
             });
         }
     }
