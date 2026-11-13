@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Shared Core
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  Shared utilities for all TECH scripts — observer manager, polling, DOM helpers, iframe access
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Shared-Core.user.js
@@ -258,9 +258,19 @@
 
         getCsrf: function () {
             var iDoc = TS.iframe.getDoc();
-            if (!iDoc) return null;
-            var t = iDoc.querySelector('input[name="__RequestVerificationToken"]');
-            return t ? t.value : null;
+            if (iDoc) {
+                var t = iDoc.querySelector('input[name="__RequestVerificationToken"]')
+                     || iDoc.querySelector('meta[name="RequestVerificationToken"]');
+                if (t) {
+                    var v = t.value || t.getAttribute('content');
+                    if (v) return v;
+                }
+            }
+            // Site change: the iframe's page no longer always renders a token.
+            // Any token from this session validates (tokens are bound to the
+            // antiforgery cookie, not to the form that rendered them), so fall
+            // back to the top document before giving up.
+            return TS.csrf.get();
         },
 
         waitForReady: function (callback, timeoutMs) {
