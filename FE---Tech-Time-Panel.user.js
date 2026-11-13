@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FE - Tech Time Panel
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.5
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Tech-Time-Panel.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/FE---Tech-Time-Panel.user.js
 // @description  View-only floating panel: quick view of a tech's hours on a work order. Keeps the Time Expanded section (the iframe the panel reads from). No labor-line writing, no quick add tool.
@@ -66,7 +66,7 @@
         if (doc.documentElement.dataset.brColsHidden === "1") return;
         doc.documentElement.dataset.brColsHidden = "1";
 
-        // ── Hide Cost, Markup, Price, Per, Subtotal columns ──
+        // â”€â”€ Hide Cost, Markup, Price, Per, Subtotal columns â”€â”€
         // Headers
         doc.querySelectorAll('tr.lq-table-header-w-options th').forEach(function (th) {
             var label = th.textContent.trim();
@@ -86,7 +86,7 @@
                 td.style.display = 'none';
             });
         });
-        // Source line "Per Unit" column (no input — nth-child 8)
+        // Source line "Per Unit" column (no input â€” nth-child 8)
         doc.querySelectorAll('tr.sourceLine > td:nth-child(8)').forEach(function (td) {
             td.style.display = 'none';
         });
@@ -313,7 +313,7 @@
                     var c = $(input).data("kendoComboBox");
                     if (c) {
                         var url = c.dataSource && c.dataSource.transport && c.dataSource.transport.options && c.dataSource.transport.options.read && c.dataSource.transport.options.read.url;
-                        // Skip part catalog combos — only service combos have "Hourly"
+                        // Skip part catalog combos â€” only service combos have "Hourly"
                         if (url && url.indexOf('/Parts/') !== -1) return;
                         combos.push({ combo: c, url: url || '?' });
                     }
@@ -530,7 +530,7 @@
                 el.remove();
             });
 
-            doc.querySelectorAll('a[href*="ReportGenerator/PrintPDF"]').forEach(btn => btn.remove());
+            doc.querySelectorAll('a[href*="ReportGenerator/PrintPDF"], a[href*="/PdfGenerator/ViewPdf"]').forEach(btn => btn.remove());
 
             var footer = doc.querySelector("footer");
             if (footer) footer.remove();
@@ -648,7 +648,8 @@
         inner.className = "col-md-12";
 
         var iframe = document.createElement("iframe");
-        iframe.src = jobUrl;
+        // Cache-bust so a stale copy of the job page is never served.
+        iframe.src = jobUrl + (jobUrl.indexOf('?') === -1 ? '?' : '&') + 'brv=' + Date.now();
         iframe.style.width = "100%";
         iframe.style.height = "2000px";
         iframe.style.border = "1px solid #ccc";
@@ -657,6 +658,32 @@
         iframe.style.overflow = "hidden";
 
         iframe.onload = function () {
+            // Inject antiforgery token so the job page's own POSTs don't 404.
+            // Mirror the TECH script's ensureIframeAntiforgery: read from the
+            // top document first, then fall back to Shared-Core's csrf.get().
+            function injectToken() {
+                try {
+                    var doc = iframe.contentDocument || iframe.contentWindow.document;
+                    if (!doc || !doc.body) return;
+                    if (doc.querySelector('input[name="__RequestVerificationToken"]')) return;
+                    var token = null;
+                    var topEl = document.querySelector('input[name="__RequestVerificationToken"]')
+                               || document.querySelector('meta[name="RequestVerificationToken"]');
+                    if (topEl) token = topEl.value || topEl.getAttribute('content');
+                    if (!token && window.TechShared && window.TechShared.csrf) {
+                        try { token = window.TechShared.csrf.get(); } catch (e) {}
+                    }
+                    if (!token) return;
+                    var inp = doc.createElement('input');
+                    inp.type = 'hidden';
+                    inp.id = 'br-antiforgery-token';
+                    inp.name = '__RequestVerificationToken';
+                    inp.value = token;
+                    doc.body.appendChild(inp);
+                } catch (e) {}
+            }
+            injectToken();
+            setTimeout(injectToken, 500);
             watchIframe(iframe);
         };
 
@@ -882,7 +909,18 @@
                     }).join(' ').trim();
                     if (TECH_DESC_RE.test(joined)) desc = joined;
                 }
-                if (!desc) return;
+                // Fallback: .condensedCell may be gone after the site change;
+                // the row text contains a lot of extra cells, so search for a
+                // "Name - Hours" substring instead of a full-string match.
+                if (!desc) {
+                    var rowText = (row.textContent || '').replace(/\s+/g, ' ').trim();
+                    var m = rowText.match(/([A-Za-z][A-Za-z\s]*?)\s*-\s*Hours/i);
+                    if (m) desc = m[1].trim() + ' - Hours';
+                }
+                if (!desc) {
+                    console.log('[FE TechTime] no match, row text:', (row.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120));
+                    return;
+                }
 
                 var v = parseFloat(el.value);
                 list.push({ name: techNameFrom(desc), hours: isNaN(v) ? 0 : v });
@@ -903,7 +941,7 @@
         var el = document.getElementById('tp-total');
         if (!el) return;
         var total = getTotalHours();
-        el.textContent = total !== null ? total + 'h' : '—';
+        el.textContent = total !== null ? total + 'h' : 'â€”';
     }
 
     function renderTechList() {
@@ -1167,7 +1205,7 @@
     function initPanel() {
         waitForJobUrl().then(function (jobUrl) {
             if (!jobUrl) {
-                warn('No job URL found — panel skipped.');
+                warn('No job URL found â€” panel skipped.');
                 return;
             }
 
