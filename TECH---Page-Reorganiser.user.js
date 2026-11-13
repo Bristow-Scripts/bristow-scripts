@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      7.6
+// @version      7.7
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @noframes
@@ -35,7 +35,6 @@
         'ReportName=Optional_Report1','ReportName=Optional_Report2','ReportName=Optional_Report3',
         'ReportName=Optional_Report4','ReportName=Optional_Report5','ReportName=Optional_Report6',
         'ReportName=Optional_Report8','ReportName=Job_Report','ReportName=JobDetailed_Report',
-        '/PdfGenerator/ViewPdf',
         '/TimeTracking/ServiceTimeTracking','/Orders/Jobs/PerformServices',
     ];
     const HIDDEN_HEADER_SECTIONS = ['#collapseContactInfo'];
