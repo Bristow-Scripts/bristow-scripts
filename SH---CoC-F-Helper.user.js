@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - CoC-F Helper
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      3.8
+// @version      3.9
 // @description  Report guards for shipping: CoC auto-fills/stamps dates; CoC/Sub CoC/Form 1 grayed by Work Performed & Cost Center (dropdown); CoC & Form 1 blocked until a manual is Selected and not expired; Form 1 adds CARs 571 remarks with Unit Certified to prompt, Bell Helicopters REV, blocks on Part No./Description mismatch and missing manual Revision Info.
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @noframes
@@ -35,7 +35,7 @@
     //       'normal' = opens normally when not blocked
     var REPORTS = [
         {
-            href: 'ReportName=Optional_Report4',
+            href: 'reportId=2587ed43-5464-408d-a1cc-f0a1a4b44d20',
             title: 'Certificate of Calibration',
             flow: 'coc',
             grayCostCenters: ['AAC', 'GYR', 'ELC', 'CAP'],
@@ -44,7 +44,7 @@
             costCenterMessage: 'Cost Center is not eligible - No CoC Required'
         },
         {
-            href: 'ReportName=Optional_Report3',
+            href: 'reportId=87a329e0-b940-4fb5-8fc8-03e64c7df2db',
             title: 'Sub Contract CoC',
             flow: 'normal',
             grayCostCenters: ['AAC', 'GYR', 'ELC', 'CAP'],
@@ -53,7 +53,7 @@
             costCenterMessage: 'Cost Center is not eligible - No Sub CoC Required'
         },
         {
-            href: 'ReportName=Optional_Report5',
+            href: 'reportId=6188c5fe-e594-4847-bfa3-afa2b5d68d22',
             title: 'Form 1',
             flow: 'form1',
             grayCostCenters: ['GAC', 'PTE'],
@@ -298,7 +298,7 @@
     }
 
     function setForm1ButtonGray(mismatch) {
-        var m = reportMeta['ReportName=Optional_Report5'];
+        var m = reportMeta['reportId=6188c5fe-e594-4847-bfa3-afa2b5d68d22'];
         if (!m || !m.el) return;
         if (mismatch) m.el.classList.add(DISABLED_CLASS);
         else m.el.classList.remove(DISABLED_CLASS);
@@ -593,9 +593,9 @@
     // ── Disabled-button overlays ──
     // A transparent layer sits on top of each grayed button so clicks hit the
     // layer, never the <a> itself. This blocks other scripts that intercept
-    // PrintPDF clicks (e.g. QZ Tray direct print) no matter the event phase or
-    // script load order, because those handlers match a[href*="PrintPDF"] and
-    // the overlay is a sibling div, not inside the link.
+    // QZ Tray direct-print clicks (now ViewPdf links) no matter the event phase
+    // or script load order, because the overlay is a sibling div, not inside
+    // the link.
     function removeOverlay(m) {
         if (m && m.overlay) { m.overlay.remove(); m.overlay = null; }
     }
