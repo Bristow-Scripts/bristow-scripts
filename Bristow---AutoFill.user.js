@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bristow - Auto-Fill
 // @namespace    http://tampermonkey.net/
-// @version      8.1
+// @version      8.6
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---Auto-Fill.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/Bristow---AutoFill.user.js
 // @description  Type /wip to fully automate starting a work order: status, docs, text, parts, tools, save.
@@ -1250,9 +1250,83 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
     });
   }
 
+  // Reserves the inspection tab while the click's user gesture is still valid.
+  // Browsers only permit window.open() during that ~5s window, so opening the
+  // tab at the very end of the run is unreliable — it gets popup-blocked. The
+  // tab shows a short "preparing" page instead of a blank white tab, and is
+  // navigated to the PDF once the order is saved.
+  function reserveInspectionTab(winName) {
+    let win = null;
+    try { win = window.open('', winName); } catch (e) { return null; }
+    if (!win) return null;
+    try {
+      win.document.open();
+      win.document.write('<!doctype html><html><head><title>Preparing inspection sheet...</title></head>'
+        + '<body style="font:14px/1.6 monospace;padding:24px;color:#333;background:#fff">'
+        + '<h2 style="font-size:15px;margin:0 0 8px">Preparing inspection sheet...</h2>'
+        + '<p style="margin:0">The work order is being completed. This tab will load the '
+        + 'Inspection PDF automatically when it is ready.</p></body></html>');
+      win.document.close();
+    } catch (e) { /* writing into the new tab is best-effort */ }
+    return win;
+  }
+
+  // Sends the reserved tab to the PDF. Falls back to a fresh window, then a
+  // synthetic link click, then a clickable link if popups are blocked.
+  function finishInspectionTab(url, winName, reserved) {
+    if (reserved && !reserved.closed) {
+      try { reserved.location.replace(url); return; } catch (e) { /* fall through */ }
+    }
+
+    let win = null;
+    try { win = window.open(url, winName); } catch (e) { win = null; }
+    if (win) return;
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    // Can't detect whether the browser blocked the synthetic click, so leave a
+    // manual fallback on screen for a while.
+    const t = document.createElement('div');
+    t.style.cssText = `position:fixed;bottom:80px;right:14px;background:#1a3a6a;color:#fff;
+      padding:12px 16px;border-radius:8px;font-family:monospace;font-size:12px;
+      max-width:360px;z-index:9999999;box-shadow:0 4px 16px rgba(0,0,0,0.45);
+      line-height:1.6;cursor:pointer;text-decoration:underline;`;
+    t.textContent = 'If the Inspection PDF did not open, click here';
+    t.addEventListener('click', () => window.open(url, '_blank'));
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 30000);
+  }
+
+  // The Print dropdown lives in the Additional Info section; give the page a
+  // moment if it hasn't rendered yet, and match either the new reportId or the
+  // link text (older markup).
+  async function findInspectionHref() {
+    const pick = () => (document.querySelector('a[href*="reportId=d4f2ad85-9dda-4e90-b39b-a9d0eac0c83d"]')
+      || [...document.querySelectorAll('a[href*="/PdfGenerator/ViewPdf"]')]
+        .find(a => /^\s*Inspection\s*$/i.test(a.textContent)))?.href;
+    let href = pick();
+    for (let i = 0; i < 10 && !href; i++) {
+      await sleep(200);
+      href = pick();
+    }
+    return href;
+  }
+
   async function runCompleteOrder(workPerformedValue) {
     const INSP_WIN = 'bristowInspection';
+    let inspWin = null;
     try {
+      // Reserve the tab FIRST, before any await — this is the only point where
+      // the browser still counts us as inside the user's click.
+      inspWin = reserveInspectionTab(INSP_WIN);
+
       // Grab inspection URL BEFORE any long async work (a reload during save
       // would otherwise kill the script before we can navigate the tab).
       const additionalSection = document.getElementById('collapseAdditional');
@@ -1261,11 +1335,15 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
         if (toggle) toggle.click();
         await sleep(400);
       }
-      const inspectionHref = document.querySelector('a[href*="Optional_Report7"]')?.href;
+      const inspectionHref = await findInspectionHref();
+      console.log('[WIP Complete] inspection link:', inspectionHref);
 
       showProgress('Step 1/5: Entering edit mode...');
       const editOk = await clickEditInfo();
-      if (!editOk) return;
+      if (!editOk) {
+        if (inspWin && !inspWin.closed) inspWin.close();
+        return;
+      }
       await sleep(STEP_DELAY);
 
       showProgress('Step 2/5: Saving WO description as comment...');
@@ -1336,23 +1414,23 @@ REVIEWED BY: BOB GRELA, #9 INITIAL.______`,
       }
       await sleep(300);
 
-      // Reserve the new tab just before saving — late enough that it barely
-      // shows, but still within the browser's ~5s popup-authorization window
-      // (the PDF itself loads only after the save).
-      window.open('', INSP_WIN);
-
+      // Tab already reserved earlier (during the user gesture). Just save now.
       showProgress('Saving...');
       await saveOrderHeader();
       await sleep(1200);
 
-      // Load the inspection PDF into the reserved tab at the very end, after
-      // everything is saved (same window name = re-uses the already-open tab).
-      if (inspectionHref) window.open(inspectionHref, INSP_WIN);
-      else showToast('⚠️ Inspection link not found on page', 'orange');
+      // Load the inspection PDF into the tab reserved at the start of the run.
+      if (inspectionHref) {
+        finishInspectionTab(inspectionHref, INSP_WIN, inspWin);
+      } else {
+        if (inspWin && !inspWin.closed) inspWin.close();
+        showToast('Inspection link not found on page', 'orange');
+      }
 
-      showToast('✅ Work Order Complete!\nInspection PDF opened for printing.', 'green');
+      showToast('✅ Work Order Complete!\nOpening Inspection PDF...', 'green');
 
     } catch (err) {
+      if (inspWin && !inspWin.closed) { try { inspWin.close(); } catch (e) {} }
       showToast(`⚠️ Error completing order:\n${err.message}`, 'orange');
       console.error('[WIP Complete]', err);
     }
