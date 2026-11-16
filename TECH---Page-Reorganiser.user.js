@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      7.7
+// @version      7.8
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @noframes
@@ -247,7 +247,9 @@
             css.push('.jump-target { scroll-margin-top: 100px !important; }');
             css.push('tr:has(a[href^="/Orders/Quotes/Edit"]),tr:has(span[data-valmsg-for="OrderHead.OrderTaxes"]) { display: none !important; }');
             css.push('tr:has(a.btn-primary[href="#AddPartTarget"]):has(a.btn-danger[onclick="removeComponent()"]) { display: none !important; }');
-            css.push('button[onclick*="listBoxToComment"]:not([onclick*="OrderHead_CustomFields_0__OptionId"]),button[onclick*="dateBoxToComment"],button[onclick*="textBoxToComment"] { display: none !important; }');
+            // Keep the Work Order Description stamp button visible in Tech Mode -
+            // techs stamp their work description into comments constantly.
+            css.push('button[onclick*="listBoxToComment"]:not([onclick*="OrderHead_CustomFields_0__OptionId"]),button[onclick*="dateBoxToComment"],button[onclick*="textBoxToComment"]:not([onclick*="AerospaceHead_WorkOrderDesc"]) { display: none !important; }');
             css.push('.tech-frozen-overlay { display: inline !important; font-family: inherit !important; white-space: normal !important; overflow-x: visible !important; }');
             css.push('.k-picker[aria-controls*="CustomFields_10"] { display: inline-flex !important; white-space: nowrap !important; overflow: hidden !important; }');
 
