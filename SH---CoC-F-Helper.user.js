@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SH - CoC-F Helper
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      3.9
+// @version      3.10
 // @description  Report guards for shipping: CoC auto-fills/stamps dates; CoC/Sub CoC/Form 1 grayed by Work Performed & Cost Center (dropdown); CoC & Form 1 blocked until a manual is Selected and not expired; Form 1 adds CARs 571 remarks with Unit Certified to prompt, Bell Helicopters REV, blocks on Part No./Description mismatch and missing manual Revision Info.
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @noframes
@@ -118,6 +118,23 @@
     }
 
     function findRowByLabel(labelText) {
+        // Current "Additional Info" markup is a custom-fields grid when each
+        // field is a div.custom-field with
+        //   label.custom-field-label > span.custom-field-label-text
+        // (no label.control-label / table row any more). Match the visible label
+        // text and return the whole field container so the value lookups below
+        // keep working unchanged.
+        var cfLabels = document.querySelectorAll('label.custom-field-label');
+        for (var c = 0; c < cfLabels.length; c++) {
+            var textEl = cfLabels[c].querySelector('.custom-field-label-text') || cfLabels[c];
+            var ct = rowText(textEl);
+            if (ct === labelText || ct.indexOf(labelText) === 0) {
+                var field = cfLabels[c].closest('.custom-field');
+                if (field) return field;
+            }
+        }
+
+        // Legacy table / col-md markup.
         var labels = document.querySelectorAll('label.control-label');
         for (var i = 0; i < labels.length; i++) {
             var t = rowText(labels[i]);
