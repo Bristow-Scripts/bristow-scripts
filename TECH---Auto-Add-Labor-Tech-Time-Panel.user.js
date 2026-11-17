@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Expanded / Auto Labor / Time Panel + Quick Add Tool
 // @namespace    http://tampermonkey.net/
-// @version      10.6
+// @version      10.7
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/TECH---Auto-Add-Labor-Tech-Time-Panel.user.js
 // @description  TECH Expanded/Auto Labor/Time Panel plus a floating "+ Add Tool" button that opens a search popup to add a tool to the work order without digging through the Documentations catalog.
@@ -1024,6 +1024,18 @@
     // Reports failed AJAX made by the job page itself (add source line, save,
     // etc.) as a CustomEvent on the top document, where the Time Panel shows it.
     // Guards against attaching twice via iframe.dataset.brErrReporter.
+    //
+    // Only /Orders/ requests matter. The job page also fires background pings
+    // (e.g. /NotificationViewComponent/RefreshNotificationBadge); when DNS is
+    // down those fail with xhr.status === 0 (ERR_NAME_NOT_RESOLVED) and used to
+    // be reported as "Job page request failed", turning the panel red and
+    // re-enabling Log Hours even though no job operation had failed.
+    function isJobPageAjax(url, iframeWindow) {
+        var full = String(url || '');
+        try { full = new URL(full, iframeWindow.location.href).href; } catch (e) {}
+        return /\/Orders\//i.test(full);
+    }
+
     function attachIframeErrorReporter(iframe) {
         try {
             if (iframe.dataset.brErrReporter === '1') return;
@@ -1032,6 +1044,7 @@
             iframe.dataset.brErrReporter = '1';
             iWin.jQuery(iWin.document).ajaxError(function (e, xhr, settings) {
                 var url = (settings && settings.url) ? settings.url : '?';
+                if (!isJobPageAjax(url, iWin)) return;
                 var msg = 'Job page request failed: HTTP ' + xhr.status + ' \u2014 ' + url;
                 console.warn('[Trim] ' + msg);
                 try {
