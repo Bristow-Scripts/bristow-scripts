@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LIB - Documents - Manual Review Report / Library Control Sheet / Grid Optimizer
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      2.8
+// @version      2.9
 // @description  Print Manual Review Report + Library Control Sheet + cached part-number search + edit-page helpers for Documentations
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/Catalog/Documentations*
 // @noframes
@@ -10,6 +10,13 @@
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/LIB---Documents-Manual-Review-Library-Control-Grid-Optimizer.user.js
 // @tag          LIB
 // ==/UserScript==
+
+// @match covers every /Catalog/Documentations* path, so each feature must check
+// where it belongs. The toolbar/search/cache are index-page only; the floating
+// save / Add Items jump / Library Control Sheet print are edit-page only.
+var DOC_PATH = location.pathname.replace(/\/+$/, '');
+var IS_DOC_LIST_PAGE = DOC_PATH === '/Catalog/Documentations';
+var IS_DOC_EDIT_PAGE = /^\/Catalog\/Documentations\/(?:View|Edit)Documentation$/i.test(DOC_PATH);
 
 (function () {
     'use strict';
@@ -56,6 +63,7 @@
     }
 
     function initListPage() {
+        if (!IS_DOC_LIST_PAGE) return;
         if (window.__docManagerInited) return;
         window.__docManagerInited = true;
         injectUI();
@@ -185,6 +193,7 @@
     }
 
     function injectUI() {
+        if (!IS_DOC_LIST_PAGE) return;
         var well = document.querySelector('.well.well-sm');
         if (!well) return;
 
@@ -920,6 +929,7 @@
     // ==================== EDIT PAGE ====================
 
     function setupEditPage() {
+        if (!IS_DOC_EDIT_PAGE) return;
         var input = document.getElementById('Documentation_Capability');
         if (!input || input.tagName === 'SELECT') return;
 
@@ -1005,6 +1015,7 @@
     // ==================== INIT ====================
 
     function tryInit() {
+        if (!IS_DOC_LIST_PAGE) return false;
         if (window.$ && grid()) {
             initListPage();
             return true;
@@ -1013,6 +1024,7 @@
     }
 
     function startInit() {
+        if (!IS_DOC_LIST_PAGE) return;
         var t = 0;
         var id = setInterval(function () {
             t++;
@@ -1020,22 +1032,26 @@
         }, 250);
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', startInit);
-    } else {
-        startInit();
+    if (IS_DOC_LIST_PAGE) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', startInit);
+        } else {
+            startInit();
+        }
     }
 
-    setTimeout(function () {
-        setupEditPage();
-    }, 300);
+    if (IS_DOC_EDIT_PAGE) {
+        setTimeout(function () {
+            setupEditPage();
+        }, 300);
 
-    var jumpTries = 0;
-    var jumpTimer = setInterval(function () {
-        jumpTries++;
-        var done = setupFloatingSave() && setupAddItemsJump();
-        if (done || jumpTries > 120) clearInterval(jumpTimer);
-    }, 500);
+        var jumpTries = 0;
+        var jumpTimer = setInterval(function () {
+            jumpTries++;
+            var done = setupFloatingSave() && setupAddItemsJump();
+            if (done || jumpTries > 120) clearInterval(jumpTimer);
+        }, 500);
+    }
 })();
 
 // ==================== LIBRARY CONTROL SHEET ====================
@@ -1275,6 +1291,7 @@
     }
 
     function addPrintButton() {
+        if (!IS_DOC_EDIT_PAGE) return false;
         if (document.getElementById('lcs-print-btn')) return true;
         var heading = null;
         var hs = document.querySelectorAll('h2');
@@ -1298,7 +1315,9 @@
         return true;
     }
 
-    var observer = new MutationObserver(function () { addPrintButton(); });
-    observer.observe(document.body, { childList: true, subtree: true });
-    addPrintButton();
+    if (IS_DOC_EDIT_PAGE) {
+        var observer = new MutationObserver(function () { addPrintButton(); });
+        observer.observe(document.body, { childList: true, subtree: true });
+        addPrintButton();
+    }
 })();
