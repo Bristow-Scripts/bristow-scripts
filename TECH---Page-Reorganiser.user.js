@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECH - Page Reorganiser
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      7.8
+// @version      7.9
 // @description  Cleans up the order page for techs. Uses TechShared core for observer management.
 // @match        https://liquid-264-drc0bgd0eje0ckcg.westus3-01.azurewebsites.net/*
 // @noframes
@@ -641,6 +641,17 @@
         var group = document.querySelector('.btn-group.btn-group-sm:has(a[href="#HeaderTarget"])');
         if (!group) return;
         var parent = group.parentNode;
+
+        // Already parked in the right spot - leave the DOM alone. This runs on
+        // every mutation cycle; removing and re-inserting the link each time
+        // can pull it out from under the pointer between mousedown and mouseup,
+        // which silently swallows the first click (a second click then works).
+        var existing = parent.querySelector('a[data-tech-inspected]');
+        if (existing && group.nextElementSibling === existing) {
+            if (existing.style.display !== '') existing.style.display = '';
+            return;
+        }
+
         var btn = document.querySelector('a.btn-info[href*="Optional_Report7"]:not([data-tech-inspected])');
         if (!btn) {
             // Site change: standalone ReportName=Optional_Report7 links are gone —
