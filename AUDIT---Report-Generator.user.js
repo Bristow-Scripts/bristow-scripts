@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUDIT - Compliance Report Generator
 // @namespace    https://bristow-scripts.github.io/bristow-scripts
-// @version      4.49
+// @version      4.51
 // @description  Multi-page audit console: Work Orders, POs, Library, Tools, Inventory. Date range, category filters, PDF export.
 // @updateURL    https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bristow-Scripts/bristow-scripts/main/AUDIT---Report-Generator.user.js
@@ -1386,7 +1386,7 @@
     // ═══════════════════════════════════════════════════════════════════════
 
     var HIST_CACHE_KEY = SCRIPT_ID + '-hist-cache';
-    var HIST_CACHE_VERSION = 1;            // bump when cached payload shape changes
+    var HIST_CACHE_VERSION = 2;            // bump when cached payload shape changes
     var HIST_LOOKBACK_DAYS = 120;          // how far before rangeStart to scan candidate CreatedAt
     var HIST_PARALLEL = 6;                 // concurrent edit/history lookups (kept modest to avoid hammering the server)
     var HIST_TRIP_AT = 8;                  // consecutive request failures before backing off
@@ -1607,7 +1607,7 @@
     // { no, date, resolved } where resolved=false means we never got a field Id
     // (so the order is left uncached and retried next run rather than being told
     // "no shipped").
-    function fetchShipDateForOrder(c) {
+    function fetchShipDateForOrderHist(c) {
         return new Promise(function (resolve) {
             var fieldId = c.fieldId || '';
             // The grid often serializes an all-zero GUID instead of omitting the
@@ -1637,6 +1637,72 @@
             }
             return fetchStatusHistoryShipDate(fieldId).then(function (d) {
                 resolve({ no: c.no, date: d ? d.date : null, resolved: !!(d && d.ok) });
+            });
+        });
+    }
+
+    // ── Comments fallback ──
+    // The order's Internal Comments grid carries a "Bristow Status : Shipped"
+    // comment stamped when the status changed. Used only when the status-history
+    // popup yields no Shipped date. Reads the same handler the Edit page's grid
+    // uses and returns the LATEST such comment's CreatedAt.
+    function parseCommentsShipDate(text) {
+        try {
+            var j = JSON.parse(text);
+            var arr = Array.isArray(j) ? j : (j && (j.Data || j.data || j.Items || j.items)) || [];
+            var best = null;
+            for (var i = 0; i < arr.length; i++) {
+                var t = String((arr[i] && arr[i].Text) || '');
+                if (!/bristow\s*status\s*:\s*shipped\s*$/i.test(t.trim())) continue;
+                var raw = arr[i].CreatedAt, d = null;
+                if (typeof raw === 'string') {
+                    var ms = /\/Date\((-?\d+)/.exec(raw);
+                    d = ms ? new Date(parseInt(ms[1], 10)) : new Date(raw);
+                } else if (typeof raw === 'number') d = new Date(raw);
+                if (d && !isNaN(d.getTime()) && (!best || d.getTime() > best.getTime())) best = d;
+            }
+            return best;
+        } catch (e) { return null; }
+    }
+
+    function fetchCommentsShipDate(orderId) {
+        return new Promise(function (resolve) {
+            if (!orderId) return resolve({ ok: false, date: null });
+            var attempts = 0;
+            function attempt() {
+                attempts++;
+                var xhr = new XMLHttpRequest();
+                try {
+                    xhr.open('GET', '/Orders/Orders/Edit?parentId=' + encodeURIComponent(orderId) +
+                        '&handler=Comments&page=1&pageSize=1000&skip=0&take=1000&_=' + Date.now(), true);
+                } catch (e) { return resolve({ ok: false, date: null }); }
+                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                xhr.setRequestHeader('Accept', 'application/json');
+                xhr.timeout = 60000;
+                xhr.onreadystatechange = function () {
+                    if (xhr.readyState !== 4) return;
+                    if (xhr.status === 200) return resolve({ ok: true, date: parseCommentsShipDate(xhr.responseText) });
+                    if (xhr.status >= 500 && attempts < 3) return setTimeout(attempt, 1500 * attempts);
+                    resolve({ ok: false, date: null });
+                };
+                xhr.onerror = function () { if (attempts < 3) return setTimeout(attempt, 1500 * attempts); resolve({ ok: false, date: null }); };
+                xhr.ontimeout = function () { if (attempts < 3) return setTimeout(attempt, 1500 * attempts); resolve({ ok: false, date: null }); };
+                xhr.send();
+            }
+            attempt();
+        });
+    }
+
+    // Status history first; comments only when history gave no date, so the
+    // extra request is paid just for the (rare) failures — and the result is
+    // cached either way. resolved=false (server errors on every source) stays
+    // uncached and retries next run.
+    function fetchShipDateForOrder(c) {
+        return fetchShipDateForOrderHist(c).then(function (h) {
+            if (h.date) return h;
+            return fetchCommentsShipDate(c.orderId).then(function (cm) {
+                if (cm.date) return { no: c.no, date: cm.date, resolved: true };
+                return { no: c.no, date: null, resolved: !!(h.resolved && cm.ok) };
             });
         });
     }
@@ -1734,6 +1800,9 @@
                         ships[c.no] = d.toISOString();
                         out[c.no] = d;
                     } else {
+                        // Both the status history AND the comments fallback were
+                        // checked successfully and neither has a Shipped entry —
+                        // safe to cache so it is never re-fetched.
                         ships[c.no] = null;
                     }
                     return { ok: true };
@@ -3816,15 +3885,30 @@ return step();
                     // currently-shipped orders appear in the report — matching
                     // the website's filtered count — even if their exact shipped
                     // date is unknown.
+                    // v4.51: no CreatedAt fallback. Date comes from Bristow Status
+                    // history, then the order's comments. If neither has it, the
+                    // order is kept with a BLANK Shipped Date (so you can still see
+                    // it shipped) — but only if it was created within the report
+                    // window (lookback before range start, up to range end), so old
+                    // undated orders don't flood the report.
                     var mergedDates = {};
+                    var undatedOrders = [];
+                    var uStart = dates.start ? new Date(dates.start) : null;
+                    if (uStart) uStart.setDate(uStart.getDate() - HIST_LOOKBACK_DAYS);
+                    var uEnd = dates.end ? new Date(dates.end) : null;
+                    if (uEnd) uEnd.setHours(23, 59, 59, 999);
                     Object.keys(filtered).forEach(function (no) {
-                        if (sdMap[no]) {
-                            mergedDates[no] = sdMap[no];
-                        } else {
-                            var w = filtered[no];
-                            if (w.createdAt) mergedDates[no] = w.createdAt;
-                        }
+                        if (sdMap[no]) { mergedDates[no] = sdMap[no]; return; }
+                        var ca = filtered[no].createdAt;
+                        if (ca && uStart && ca.getTime() < uStart.getTime()) return;
+                        if (ca && uEnd && ca.getTime() > uEnd.getTime()) return;
+                        mergedDates[no] = null;
+                        undatedOrders.push(no);
                     });
+                    if (undatedOrders.length) {
+                        console.warn('[AUDIT-HIST] ' + undatedOrders.length + ' shipped orders have no readable shipped date (shown blank):', undatedOrders.join(', '));
+                        showToast(undatedOrders.length + ' shipped order(s) have a blank Shipped Date - date not found in history or comments.', 'warn');
+                    }
                     var shippedOrders = Object.keys(mergedDates);
                     if (shippedOrders.length === 0) {
                         hideProgress();
@@ -9226,8 +9310,8 @@ var repKey = normalizeName(getSelectedRep());
         applyAuditorMode();
         injectButton();
         checkDispatch();
-        if (TS) TS.log('AUDIT Console v4.48 loaded');
-        else console.log('[AUDIT] Console v4.48 loaded');
+        if (TS) TS.log('AUDIT Console v4.51 loaded');
+        else console.log('[AUDIT] Console v4.51 loaded');
         try { if (window.unsafeWindow) window.unsafeWindow.auditHistTest = auditHistTest; } catch (e) {}
         try { window.auditHistTest = auditHistTest; } catch (e) {}
     }
